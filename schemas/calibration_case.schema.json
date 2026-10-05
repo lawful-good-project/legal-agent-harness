@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.org/schemas/calibration_case.schema.json",
+  "title": "CalibrationCase",
+  "description": "Кейс калибровки правового агента: источник + ожидаемое извлечение.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["case_id", "source", "expected"],
+  "properties": {
+    "case_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Уникальный идентификатор кейса."
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority", "jurisdiction", "doc_type", "identifier", "coordinate"],
+      "properties": {
+        "authority": {"type": "string", "minLength": 1},
+        "jurisdiction": {"type": "string", "minLength": 1},
+        "doc_type": {"type": "string", "minLength": 1},
+        "identifier": {"type": "string", "minLength": 1},
+        "coordinate": {"type": "string", "minLength": 1}
+      }
+    },
+    "expected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["norm_id", "predicate", "subject", "object", "confidence"],
+      "properties": {
+        "norm_id": {"type": "string", "minLength": 1},
+        "predicate": {"type": "string", "minLength": 1},
+        "subject": {"type": "string", "minLength": 1},
+        "object": {"type": "string", "minLength": 1},
+        "effective_from": {"type": ["string", "null"]},
+        "effective_to": {"type": ["string", "null"]},
+        "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+      }
+    }
+  }
+}
