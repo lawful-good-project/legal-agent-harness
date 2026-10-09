@@ -31,6 +31,8 @@
 - `schemas/calibration_case.schema.json` — JSON Schema кейса.
 - `examples/` — образцы кейсов и ответов.
 - `tests/test_harness.py` — модульные тесты (без сети).
+- `docs/AMENDMENT-EXTRACTION.md` — профиль извлечения изменений в НПА.
+- `examples/amendments.jsonl` — минимальные amendment-кейсы.
 
 ## Соглашения
 
@@ -38,6 +40,8 @@
 - Публичный API реэкспортируется из `legal_agent_harness/__init__.py`.
 - Изменения — минимальным диффом, с сохранением существующего стиля.
 - После правок: `python -m pytest -q tests/test_harness.py`.
+- Для `source.doc_type=amending_act` действует канонический список типов
+  изменения и базовая проверка согласованности дат.
 
 ## Запрещено
 
