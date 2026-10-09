@@ -33,6 +33,18 @@ SOURCE_REQUIRED_FIELDS = (
     "coordinate",
 )
 
+AMENDMENT_PREDICATES = frozenset(
+    {
+        "изменена",
+        "дополнена",
+        "введена",
+        "изложена_в_новой_редакции",
+        "признана_утратившей_силу",
+        "исключена",
+        "уточнена",
+    }
+)
+
 # Обязательные поля ожидания.
 EXPECTED_REQUIRED_FIELDS = (
     "norm_id",
@@ -43,9 +55,9 @@ EXPECTED_REQUIRED_FIELDS = (
 )
 
 # Допустимые границы (exact keys) для source/expected.
-SOURCE_ALLOWED_FIELDS = frozenset(SOURCE_REQUIRED_FIELDS)
+SOURCE_ALLOWED_FIELDS = frozenset(SOURCE_REQUIRED_FIELDS + ("effective_date",))
 EXPECTED_ALLOWED_FIELDS = frozenset(
-    EXPECTED_REQUIRED_FIELDS + ("effective_from", "effective_to")
+    EXPECTED_REQUIRED_FIELDS + ("effective_from", "effective_to", "change_description")
 )
 
 # Секреты: ключи, которые должны быть вырезаны из событий.
@@ -101,6 +113,16 @@ def validate_case(case: Any) -> Dict[str, Any]:
     if extra_src:
         raise CaseValidationError(f"[{case_id}] source: недопустимые поля: {extra_src}")
 
+    if "effective_date" in source:
+        date = source["effective_date"]
+        if date is not None and (
+            not isinstance(date, str)
+            or not re.fullmatch(r"[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?", date)
+        ):
+            raise CaseValidationError(
+                f"[{case_id}] source.effective_date имеет неверный формат"
+            )
+
     expected = case.get("expected")
     if not isinstance(expected, dict):
         raise CaseValidationError(
@@ -120,6 +142,13 @@ def validate_case(case: Any) -> Dict[str, Any]:
         raise CaseValidationError(
             f"[{case_id}] expected: недопустимые поля: {extra_exp}"
         )
+
+    if source.get("doc_type") == "amending_act":
+        predicate = expected.get("predicate")
+        if predicate not in AMENDMENT_PREDICATES:
+            raise CaseValidationError(
+                f"[{case_id}] expected.predicate недопустим для amending_act: {predicate!r}"
+            )
 
     conf = expected.get("confidence")
     try:
@@ -170,6 +199,30 @@ def matches_expectation(case: Dict[str, Any], response: Dict[str, Any]) -> bool:
         elif got.get(key) != value:
             return False
     return True
+
+
+def validate_temporal_consistency(
+    case: Dict[str, Any], response: Dict[str, Any]
+) -> List[str]:
+    """Проверяет базовую хронологию изменения нормы.
+
+    Это проверка здравого смысла, а не юридическое заключение: отсутствие даты
+    не считается ошибкой, но противоречивые даты не могут быть одобрены.
+    """
+    source_date = case.get("source", {}).get("effective_date")
+    expected = response.get("expected", {})
+    effective_from = expected.get("effective_from")
+    effective_to = expected.get("effective_to")
+    errors: List[str] = []
+    if source_date and effective_from and effective_from < source_date:
+        errors.append(
+            f"effective_from {effective_from} раньше даты источника {source_date}"
+        )
+    if effective_from and effective_to and effective_to < effective_from:
+        errors.append(
+            f"effective_to {effective_to} раньше effective_from {effective_from}"
+        )
+    return errors
 
 
 def redact(value: Any) -> Any:
@@ -312,12 +365,19 @@ def run_case(
 
         last_response = response
         matched = matches_expectation(case, response)
+        temporal_errors = validate_temporal_consistency(case, response)
+        if temporal_errors:
+            matched = False
         emit(
             "validator_feedback",
             round_no,
             {
                 "ok": matched,
-                "reason": "совпадение" if matched else "расхождение с ожиданием",
+                "reason": (
+                    "совпадение"
+                    if matched
+                    else ("; ".join(temporal_errors) if temporal_errors else "расхождение с ожиданием")
+                ),
             },
         )
         if matched:

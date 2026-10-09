@@ -19,6 +19,7 @@ from legal_agent_harness import (  # noqa: E402
     redact,
     run_case,
     validate_case,
+    validate_temporal_consistency,
 )
 from legal_agent_harness.adapters import (  # noqa: E402
     AdapterError,
@@ -49,6 +50,29 @@ def _case():
             "confidence": 0.9,
         },
     }
+
+
+def _amendment_case():
+    case = _case()
+    case["case_id"] = "amendment-001"
+    case["source"].update(
+        {
+            "doc_type": "amending_act",
+            "identifier": "ФЗ от 01.07.2017 № 147-ФЗ",
+            "effective_date": "2017-10-01",
+        }
+    )
+    case["expected"].update(
+        {
+            "norm_id": "гк-рф/ст.1252",
+            "predicate": "изменена",
+            "subject": "ГК РФ ст. 1252",
+            "object": "ФЗ-147 от 01.07.2017",
+            "effective_from": "2017-10-01",
+            "change_description": "Статья изменена федеральным законом.",
+        }
+    )
+    return case
 
 
 class _CountingAdapter:
@@ -138,6 +162,50 @@ def test_validate_case_rejects_extra_expected_field():
     case["expected"]["extra"] = "x"
     with pytest.raises(CaseValidationError):
         validate_case(case)
+
+
+def test_amendment_case_accepts_effective_date_and_description():
+    case = _amendment_case()
+    assert validate_case(case) == case
+
+
+def test_temporal_consistency_rejects_inverted_dates():
+    case = _amendment_case()
+    response = {"expected": dict(case["expected"], effective_to="2017-01-01")}
+    errors = validate_temporal_consistency(case, response)
+    assert errors
+    assert "effective_to" in errors[0]
+
+
+def test_temporal_consistency_rejects_date_before_source():
+    case = _amendment_case()
+    response = {"expected": dict(case["expected"], effective_from="2017-09-30")}
+    errors = validate_temporal_consistency(case, response)
+    assert errors
+    assert "раньше даты источника" in errors[0]
+
+
+def test_amendment_predicate_must_be_canonical():
+    case = _amendment_case()
+    case["expected"]["predicate"] = "упомянута"
+    with pytest.raises(CaseValidationError, match="predicate"):
+        validate_case(case)
+
+
+def test_effective_date_format_is_checked():
+    case = _amendment_case()
+    case["source"]["effective_date"] = "не дата"
+    with pytest.raises(CaseValidationError, match="effective_date"):
+        validate_case(case)
+
+
+def test_amendment_temporal_error_prevents_approval():
+    case = _amendment_case()
+    wrong = dict(case["expected"], effective_from="2017-09-30")
+    adapter = ReplayAdapter({"amendment-001": {"response": {"expected": wrong}}})
+    result = run_case(case, adapter)
+    assert result.approved is False
+    assert result.status == "needs_expert_approval"
 
 
 def test_replay_adapter_returns_supplied_json():

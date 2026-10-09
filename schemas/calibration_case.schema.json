@@ -21,7 +21,11 @@
         "jurisdiction": {"type": "string", "minLength": 1},
         "doc_type": {"type": "string", "minLength": 1},
         "identifier": {"type": "string", "minLength": 1},
-        "coordinate": {"type": "string", "minLength": 1}
+        "coordinate": {"type": "string", "minLength": 1},
+        "effective_date": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?$"
+        }
       }
     },
     "expected": {
@@ -30,11 +34,29 @@
       "required": ["norm_id", "predicate", "subject", "object", "confidence"],
       "properties": {
         "norm_id": {"type": "string", "minLength": 1},
-        "predicate": {"type": "string", "minLength": 1},
+        "predicate": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Для amending_act используется канонический тип изменения.",
+          "enum": [
+            "изменена",
+            "дополнена",
+            "введена",
+            "изложена_в_новой_редакции",
+            "признана_утратившей_силу",
+            "исключена",
+            "уточнена",
+            "предоставляет_охрану",
+            "отсылает_к",
+            "влечёт_изменение",
+            "требует_приведения_в_соответствие"
+          ]
+        },
         "subject": {"type": "string", "minLength": 1},
         "object": {"type": "string", "minLength": 1},
         "effective_from": {"type": ["string", "null"]},
         "effective_to": {"type": ["string", "null"]},
+        "change_description": {"type": ["string", "null"], "maxLength": 2000},
         "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0}
       }
     }
