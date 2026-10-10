@@ -417,24 +417,50 @@ def run_case(
 
 
 def load_cases(path: str) -> List[Dict[str, Any]]:
-    """Загружает и валидирует все кейсы из JSONL-файла."""
+    """Загружает и валидирует все кейсы из JSONL-файла.
+
+    ``case_id`` должен быть уникален в пределах файла. Дубликат — ошибка:
+    иначе ``replay`` подставит один и тот же ответ в два разных кейса, а в
+    отчёте прогона их события невозможно будет различить.
+    """
     cases: List[Dict[str, Any]] = []
+    seen: Dict[str, int] = {}
     for line_no, obj in enumerate(_iter_jsonl(path), start=1):
         try:
             validate_case(obj)
         except CaseValidationError as exc:
             raise CaseValidationError(f"{path}:{line_no}: {exc}") from exc
+        case_id = obj["case_id"]
+        if case_id in seen:
+            raise CaseValidationError(
+                f"{path}:{line_no}: дублирующийся case_id {case_id!r} "
+                f"(впервые встречается в записи {seen[case_id]})"
+            )
+        seen[case_id] = line_no
         cases.append(obj)
     return cases
 
 
 def load_responses(path: str) -> Dict[str, Dict[str, Any]]:
-    """Загружает карту case_id -> response из JSONL-файла."""
+    """Загружает карту case_id -> response из JSONL-файла.
+
+    ``case_id`` должен быть уникален. Раньше второй ответ с тем же ``case_id``
+    молча перезаписывал первый, и было неизвестно, какой из ответов агента
+    попал в прогон; теперь это ошибка валидации.
+    """
     responses: Dict[str, Dict[str, Any]] = {}
+    seen: Dict[str, int] = {}
     for line_no, obj in enumerate(_iter_jsonl(path), start=1):
         if not isinstance(obj, dict) or not _is_str(obj.get("case_id")):
             raise ResponseValidationError(f"{path}:{line_no}: требуется case_id")
-        responses[obj["case_id"]] = obj
+        case_id = obj["case_id"]
+        if case_id in seen:
+            raise ResponseValidationError(
+                f"{path}:{line_no}: дублирующийся case_id {case_id!r} "
+                f"(впервые встречается в записи {seen[case_id]})"
+            )
+        seen[case_id] = line_no
+        responses[case_id] = obj
     return responses
 
 
