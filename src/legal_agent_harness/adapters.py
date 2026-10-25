@@ -14,10 +14,16 @@ import shlex
 import shutil
 import subprocess
 import sys
-from typing import Any, Dict, List, Optional, Sequence
+import threading
+import time
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 DEFAULT_TIMEOUT_SECONDS = 20.0
 DEFAULT_MAX_OUTPUT_BYTES = 1_000_000
+
+_READ_CHUNK_BYTES = 65536
+_POLL_SECONDS = 0.05
+_JOIN_SECONDS = 1.0
 
 # Переменные окружения, запрещающие неявную сетевую активность не форсируем,
 # но явно предупреждаем: адаптер запускает только указанную пользователем
@@ -102,32 +108,10 @@ class LocalProcessAdapter(Adapter):
 
     def respond(self, case: Dict[str, Any]) -> Dict[str, Any]:
         payload = json.dumps(case, ensure_ascii=False).encode("utf-8")
-        try:
-            proc = subprocess.run(
-                self._command if not self._use_shell else " ".join(self._command),
-                input=payload,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=self._timeout,
-                shell=self._use_shell,
-                cwd=self._cwd,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise AdapterError(
-                f"таймаут локального процесса ({self._timeout} c)"
-            ) from exc
-        except FileNotFoundError as exc:
-            raise AdapterError(
-                f"исполняемый файл не найден: {self._command[0]!r}"
-            ) from exc
-
-        stdout = proc.stdout or b""
-        if len(stdout) > self._max_output_bytes:
-            raise AdapterError(f"вывод превысил лимит {self._max_output_bytes} байт")
-        if proc.returncode != 0:
-            err = (proc.stderr or b"").decode("utf-8", "replace")[:500]
-            raise AdapterError(f"процесс завершился с кодом {proc.returncode}: {err}")
+        returncode, stdout, stderr = self._run(payload)
+        if returncode != 0:
+            err = stderr.decode("utf-8", "replace")[:500]
+            raise AdapterError(f"процесс завершился с кодом {returncode}: {err}")
 
         text = stdout.decode("utf-8", "replace").strip()
         if not text:
@@ -139,6 +123,94 @@ class LocalProcessAdapter(Adapter):
         if not isinstance(response, dict):
             raise AdapterError("stdout должен содержать JSON-объект")
         return response
+
+    def _run(self, payload: bytes) -> Tuple[int, bytes, bytes]:
+        """Запускает процесс и возвращает (код, stdout, stderr).
+
+        stdout читается порциями: при превышении max_output_bytes процесс
+        завершается сразу, а не после накопления всего вывода в памяти.
+        stderr хранится не больше max_output_bytes, остаток отбрасывается.
+        """
+        try:
+            proc = subprocess.Popen(
+                self._command if not self._use_shell else " ".join(self._command),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                shell=self._use_shell,
+                cwd=self._cwd,
+            )
+        except FileNotFoundError as exc:
+            raise AdapterError(
+                f"исполняемый файл не найден: {self._command[0]!r}"
+            ) from exc
+        except OSError as exc:
+            raise AdapterError(f"не удалось запустить процесс: {exc}") from exc
+
+        limit = self._max_output_bytes
+        stdout = bytearray()
+        stderr = bytearray()
+        overflow = threading.Event()
+
+        def feed() -> None:
+            try:
+                proc.stdin.write(payload)
+            except OSError:
+                pass  # процесс не читает stdin или уже завершился
+            finally:
+                try:
+                    proc.stdin.close()
+                except OSError:
+                    pass
+
+        def drain(stream: Any, buf: bytearray, strict: bool) -> None:
+            while True:
+                chunk = stream.read1(_READ_CHUNK_BYTES)
+                if not chunk:
+                    return
+                if len(buf) + len(chunk) > limit:
+                    buf.extend(chunk[: limit - len(buf)])
+                    if strict:
+                        overflow.set()
+                        return
+                else:
+                    buf.extend(chunk)
+
+        threads = [
+            threading.Thread(target=feed, daemon=True),
+            threading.Thread(target=drain, args=(proc.stdout, stdout, True), daemon=True),
+            threading.Thread(target=drain, args=(proc.stderr, stderr, False), daemon=True),
+        ]
+        for thread in threads:
+            thread.start()
+
+        deadline = time.monotonic() + self._timeout
+        timed_out = False
+        while proc.poll() is None and not overflow.is_set():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                timed_out = True
+                break
+            try:
+                proc.wait(timeout=min(remaining, _POLL_SECONDS))
+            except subprocess.TimeoutExpired:
+                pass
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+        # Дочерние процессы агента могут удерживать каналы открытыми;
+        # потоки-демоны не блокируют harness дольше короткого ожидания.
+        join_deadline = time.monotonic() + _JOIN_SECONDS
+        for thread in threads:
+            thread.join(timeout=max(0.0, join_deadline - time.monotonic()))
+
+        if overflow.is_set():
+            raise AdapterError(f"вывод превысил лимит {limit} байт")
+        if timed_out:
+            raise AdapterError(f"таймаут локального процесса ({self._timeout} c)")
+        if threads[1].is_alive():
+            raise AdapterError("stdout локального процесса не был закрыт")
+        return proc.returncode, bytes(stdout), bytes(stderr)
 
 
 def get_adapter(kind: str, **kwargs: Any) -> Adapter:
