@@ -4,6 +4,8 @@ import datetime as dt, hashlib, html, json, os, re, secrets, urllib.request, url
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+from .core import redact
+
 PREDICATES = {"изменена", "дополнена", "введена", "изложена_в_новой_редакции", "признана_утратившей_силу", "исключена", "уточнена"}
 MAX_UPLOAD = 20 * 1024 * 1024
 
@@ -61,8 +63,12 @@ def build_case(graph: Dict[str, Any]) -> Dict[str, Any]:
 
 def review_record(graph: Dict[str, Any], score: int, comments: str, session_id: str) -> Dict[str, Any]:
     if not isinstance(score, int) or not 0 <= score <= 10: raise ValueError("Оценка должна быть целым числом от 0 до 10")
-    public = {"session_id": session_id, "created_at": dt.date.today().isoformat(), "score": score, "comments": comments[:2000], "document": {k: graph["document"][k] for k in ("filename", "sha256", "authority", "jurisdiction", "effective_date")}, "records": graph["records"], "edges": graph["edges"], "expert_approved": True}
-    return public
+    # Запись уходит в журнал и в публичный датасет: комментарий и фрагменты документа проходят через redact.
+    # session_id и sha256 — служебные идентификаторы; длинный sha256 иначе вырезался бы как токен.
+    document = {k: graph["document"][k] for k in ("filename", "authority", "jurisdiction", "effective_date")}
+    public = redact({"created_at": dt.date.today().isoformat(), "score": score, "comments": comments[:2000], "document": document, "records": graph["records"], "edges": graph["edges"], "expert_approved": True})
+    public["document"]["sha256"] = graph["document"]["sha256"]
+    return {"session_id": session_id, **public}
 
 def append_review(path: str | Path, review: Dict[str, Any]) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)

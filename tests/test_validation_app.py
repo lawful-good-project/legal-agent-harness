@@ -31,3 +31,21 @@ def test_review_rejects_invalid_score():
             pass
         else:
             assert False
+
+def test_review_redacts_secrets_in_comments_and_document_text():
+    token = "hf_" + "a" * 30
+    data = "Статья 1252 изменить. Контакт: ivan@example.com".encode("utf-8")
+    graph = extract_graph("act.txt", data)
+    review = review_record(graph, 5, f"пишите на expert@example.com, токен {token}", "session-1")
+    blob = json.dumps(review, ensure_ascii=False)
+    assert "expert@example.com" not in blob
+    assert "ivan@example.com" not in blob
+    assert token not in blob
+    assert "[REDACTED]" in review["comments"]
+
+def test_review_keeps_document_checksum_and_session_id():
+    graph = extract_graph("act.txt", b"Article 1 changed")
+    review = review_record(graph, 7, "", "review-act")
+    assert review["document"]["sha256"] == graph["document"]["sha256"]
+    assert len(review["document"]["sha256"]) == 64
+    assert review["session_id"] == "review-act"
