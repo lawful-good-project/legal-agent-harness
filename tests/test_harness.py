@@ -16,6 +16,7 @@ if SRC not in sys.path:
 from legal_agent_harness import (  # noqa: E402
     CaseValidationError,
     Redactor,
+    build_agent_task,
     redact,
     run_case,
     validate_case,
@@ -308,6 +309,30 @@ def test_get_adapter_local_process_requires_command():
 
 def _python_agent(code):
     return LocalProcessAdapter([sys.executable, "-c", code], timeout=10)
+
+
+def test_run_case_does_not_pass_expected_to_adapter():
+    case = _amendment_case()
+    seen = []
+
+    class _SpyAdapter:
+        def respond(self, task):
+            seen.append(task)
+            return {"expected": case["expected"]}
+
+    run_case(case, _SpyAdapter())
+    assert seen == [build_agent_task(case)]
+    assert sorted(seen[0]) == ["case_id", "source"]
+
+
+def test_local_process_echo_agent_is_not_approved():
+    case = _amendment_case()
+    adapter = _python_agent(
+        "import sys\n"
+        "sys.stdout.buffer.write(sys.stdin.buffer.read())\n"
+    )
+    result = run_case(case, adapter, max_rounds=1)
+    assert result.approved is False
 
 
 def test_local_process_agent_answer_is_approved():
