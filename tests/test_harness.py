@@ -610,3 +610,56 @@ def test_confidence_comparison_preserves_tolerance():
         adapter = ReplayAdapter({case["case_id"]: {"response": response}})
         result = run_case(case, adapter)
         assert result.approved is approved, confidence
+
+
+def _assert_cli_error(proc, message):
+    assert proc.returncode == 1
+    assert message in proc.stderr
+    assert "Traceback" not in proc.stderr
+
+
+def test_cli_validate_cases_missing_file(tmp_path):
+    proc = _run_cli(["validate-cases", str(tmp_path / "missing.jsonl")])
+    _assert_cli_error(proc, "ОШИБКА работы с файлом")
+
+
+def test_cli_replay_missing_responses(tmp_path):
+    proc = _run_cli(
+        [
+            "replay",
+            "--cases",
+            os.path.join("examples", "cases.jsonl"),
+            "--responses",
+            str(tmp_path / "missing.jsonl"),
+        ]
+    )
+    _assert_cli_error(proc, "ОШИБКА работы с файлом")
+
+
+def test_cli_replay_out_to_missing_directory(tmp_path):
+    proc = _run_cli(
+        [
+            "replay",
+            "--cases",
+            os.path.join("examples", "cases.jsonl"),
+            "--responses",
+            os.path.join("examples", "responses.jsonl"),
+            "--out",
+            str(tmp_path / "no-such-dir" / "run.json"),
+        ]
+    )
+    _assert_cli_error(proc, "ОШИБКА работы с файлом")
+
+
+@pytest.mark.parametrize(
+    "report, message",
+    [
+        ([1, 2], "JSON-объектами"),
+        ([{"case_id": "x", "rounds": "3"}], "rounds"),
+    ],
+)
+def test_cli_report_rejects_malformed_results(tmp_path, report, message):
+    path = tmp_path / "run.json"
+    path.write_text(json.dumps(report), encoding="utf-8")
+    proc = _run_cli(["report", str(path)])
+    _assert_cli_error(proc, message)

@@ -135,6 +135,12 @@ def cmd_report(args: argparse.Namespace) -> int:
     if not isinstance(results, list):
         print("ОШИБКА: отчёт должен быть JSON-массивом", file=sys.stderr)
         return EXIT_ERROR
+    if not all(isinstance(r, dict) for r in results):
+        print("ОШИБКА: элементы отчёта должны быть JSON-объектами", file=sys.stderr)
+        return EXIT_ERROR
+    if not all(isinstance(r.get("rounds", 0), int) for r in results):
+        print("ОШИБКА: поле rounds в отчёте должно быть целым числом", file=sys.stderr)
+        return EXIT_ERROR
 
     total = len(results)
     approved = sum(1 for r in results if r.get("approved"))
@@ -227,6 +233,10 @@ def main(argv=None) -> int:
         return args.func(args)
     except (HarnessError, AdapterError) as exc:
         print(f"ОШИБКА: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+    except OSError as exc:
+        # Нет файла кейсов/ответов, нет каталога для --out и т.п.
+        print(f"ОШИБКА работы с файлом: {exc}", file=sys.stderr)
         return EXIT_ERROR
 
 
