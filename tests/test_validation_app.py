@@ -3,7 +3,7 @@ from pathlib import Path
 import sys
 import pytest
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
-from legal_agent_harness.validation_app import extract_graph, review_record, append_review
+from legal_agent_harness.validation_app import extract_graph, review_record, append_review, render_form
 
 @pytest.mark.parametrize("article", ["Статью 1259", "Статья 1259", "ст. 1259", "ст 1259"])
 def test_extracts_article_number(article):
@@ -66,3 +66,24 @@ def test_review_rejects_invalid_score():
             pass
         else:
             assert False
+
+def test_render_form_uses_defaults():
+    page = render_form()
+    assert "name='authority' value='не указан'" in page
+    assert "name='jurisdiction' value='RU'" in page
+    assert "name='score' value='' required" in page
+
+def test_render_form_keeps_values_escaped_and_never_token():
+    values = {
+        "authority": "Госдума 'ФС' <РФ>",
+        "jurisdiction": "RU",
+        "score": "7",
+        "comments": "</textarea><script>x</script>",
+        "hf_token": "hf_secret",
+    }
+    page = render_form(values=values)
+    assert "value='Госдума &#x27;ФС&#x27; &lt;РФ&gt;'" in page
+    assert "name='score' value='7'" in page
+    assert "&lt;/textarea&gt;&lt;script&gt;x&lt;/script&gt;</textarea>" in page
+    assert "<script>" not in page
+    assert "hf_secret" not in page

@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Tuple
 
 PREDICATES = {"изменена", "дополнена", "введена", "изложена_в_новой_редакции", "признана_утратившей_силу", "исключена", "уточнена"}
 MAX_UPLOAD = 20 * 1024 * 1024
+FORM_DEFAULTS = {"authority": "не указан", "jurisdiction": "RU", "score": "", "comments": ""}
 
 def _text_from_bytes(name: str, data: bytes) -> str:
     ext = Path(name).suffix.lower()
@@ -70,11 +71,13 @@ def append_review(path: str | Path, review: Dict[str, Any]) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a", encoding="utf-8") as f: f.write(json.dumps(review, ensure_ascii=False) + "\n")
 
-def render_form(result: Dict[str, Any] | None = None, message: str = "") -> str:
+def render_form(result: Dict[str, Any] | None = None, message: str = "", values: Dict[str, str] | None = None) -> str:
+    # Значения из values подставляются обратно в форму; токен не подставляется никогда.
+    v = {k: html.escape(str((values or {}).get(k, d)), quote=True) for k, d in FORM_DEFAULTS.items()}
     result_html = ""
     if result:
         result_html = "<h2>Извлечение</h2><pre>" + html.escape(json.dumps(result, ensure_ascii=False, indent=2)) + "</pre>"
-    return "<!doctype html><meta charset='utf-8'><title>Проверка НПА</title><h1>Экспертная проверка</h1><p>Учебная проверка, не юридическая консультация. Токен не сохраняется.</p><p>" + html.escape(message) + "</p><form method='post' enctype='multipart/form-data'><label>HF API token (только на время запроса) <input type='password' name='hf_token' autocomplete='off'></label><br><label>Орган <input name='authority' value='не указан'></label><label> Юрисдикция <input name='jurisdiction' value='RU'></label><br><input type='file' name='document' required accept='.pdf,.txt,.html,.htm,.docx,.rtf'><br><label>Оценка 0–10 <input type='number' min='0' max='10' name='score' required></label><br><textarea name='comments' maxlength='2000' placeholder='Комментарии (необязательно)'></textarea><br><button>Извлечь, сохранить и отправить</button></form>" + result_html
+    return "<!doctype html><meta charset='utf-8'><title>Проверка НПА</title><h1>Экспертная проверка</h1><p>Учебная проверка, не юридическая консультация. Токен не сохраняется.</p><p>" + html.escape(message) + "</p><form method='post' enctype='multipart/form-data'><label>HF API token (только на время запроса) <input type='password' name='hf_token' autocomplete='off'></label><br><label>Орган <input name='authority' value='" + v["authority"] + "'></label><label> Юрисдикция <input name='jurisdiction' value='" + v["jurisdiction"] + "'></label><br><input type='file' name='document' required accept='.pdf,.txt,.html,.htm,.docx,.rtf'><br><label>Оценка 0–10 <input type='number' min='0' max='10' name='score' value='" + v["score"] + "' required></label><br><textarea name='comments' maxlength='2000' placeholder='Комментарии (необязательно)'>" + v["comments"] + "</textarea><br><button>Извлечь, сохранить и отправить</button></form>" + result_html
 
 def publish_hf(review: Dict[str, Any], token: str, repo_id: str = "lawful-good-project/legal-agent-calibrations") -> Tuple[bool, str]:
     if not token or not re.match(r"^hf_[A-Za-z0-9]+$", token): return False, "HF-токен не задан или имеет неверный формат"

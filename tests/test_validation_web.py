@@ -177,3 +177,29 @@ def test_invalid_content_length_is_rejected(tmp_path):
     status, page = _request(tmp_path, b"", {"Content-Length": "abc"})
     assert status == 400
     assert "Некорректный заголовок Content-Length" in page
+
+
+def test_error_page_keeps_entered_values_but_not_token(tmp_path):
+    fields = {
+        "authority": "Государственная Дума ФС РФ",
+        "jurisdiction": "US",
+        "score": "11",
+        "comments": "Дата вступления в силу неверна",
+        "hf_token": "hf_doNotEchoThisToken",
+    }
+    status, page = _post(tmp_path, fields, {"document": ACT})
+    assert status == 400
+    assert "value='Государственная Дума ФС РФ'" in page
+    assert "value='US'" in page
+    assert "name='score' value='11'" in page
+    assert ">Дата вступления в силу неверна</textarea>" in page
+    assert "hf_doNotEchoThisToken" not in page
+
+
+def test_success_page_keeps_authority_and_resets_score_and_comments(tmp_path):
+    fields = {"authority": "Госдума", "jurisdiction": "RU", "score": "6", "comments": "ок"}
+    status, page = _post(tmp_path, fields, {"document": ACT})
+    assert status == 200
+    assert "value='Госдума'" in page
+    assert "name='score' value='' required" in page
+    assert ">ок</textarea>" not in page

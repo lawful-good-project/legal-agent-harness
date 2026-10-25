@@ -75,17 +75,18 @@ class Handler(BaseHTTPRequestHandler):
         form, files = parse_form(self.headers.get("Content-Type", ""), body)
 
         if "document" not in files:
-            return self._send(render_form(message="Не выбран файл документа"), 400)
+            return self._send(render_form(message="Не выбран файл документа", values=form), 400)
 
         filename, data = files["document"]
         if len(data) > MAX_UPLOAD_BYTES:
-            return self._send(render_form(message="Файл больше 20 МБ"), 400)
+            return self._send(render_form(message="Файл больше 20 МБ", values=form), 400)
 
         try:
             score = int(form.get("score", "0"))
         except ValueError:
             return self._send(
-                render_form(message="Оценка должна быть целым числом от 0 до 10"), 400
+                render_form(message="Оценка должна быть целым числом от 0 до 10", values=form),
+                400,
             )
 
         try:
@@ -97,7 +98,8 @@ class Handler(BaseHTTPRequestHandler):
             )
         except Exception as exc:
             return self._send(
-                render_form(message=f"Не удалось обработать файл {filename}: {exc}"), 400
+                render_form(message=f"Не удалось обработать файл {filename}: {exc}", values=form),
+                400,
             )
 
         try:
@@ -105,13 +107,16 @@ class Handler(BaseHTTPRequestHandler):
                 graph, score, form.get("comments", ""), "review-" + uuid.uuid4().hex[:12]
             )
         except ValueError as exc:
-            return self._send(render_form(graph, str(exc)), 400)
+            return self._send(render_form(graph, str(exc), values=form), 400)
 
         try:
             append_review(JOURNAL, review)
         except OSError as exc:
             return self._send(
-                render_form(graph, f"Не удалось записать журнал {journal_label()}: {exc}"), 500
+                render_form(
+                    graph, f"Не удалось записать журнал {journal_label()}: {exc}", values=form
+                ),
+                500,
             )
 
         token = form.get("hf_token", "")
@@ -120,8 +125,13 @@ class Handler(BaseHTTPRequestHandler):
         else:
             status = "публикация не выполнялась: HF-токен не указан"
 
+        # После успешной отправки орган и юрисдикция остаются для следующего документа,
+        # а оценка и комментарий относятся к уже сохранённому и сбрасываются.
+        kept = {key: form[key] for key in ("authority", "jurisdiction") if key in form}
         return self._send(
-            render_form(graph, f"Оценка сохранена в журнал {journal_label()}; {status}")
+            render_form(
+                graph, f"Оценка сохранена в журнал {journal_label()}; {status}", values=kept
+            )
         )
 
     def _send(self, body, status=200):
