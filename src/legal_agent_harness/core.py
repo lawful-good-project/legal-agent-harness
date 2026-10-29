@@ -192,7 +192,7 @@ def matches_expectation(case: Dict[str, Any], response: Dict[str, Any]) -> bool:
     for key, value in want.items():
         if key == "confidence":
             try:
-                if abs(float(value) - float(got.get(key))) > 1e-9:
+                if not abs(float(value) - float(got.get(key))) <= 1e-9:
                     return False
             except (TypeError, ValueError):
                 return False
