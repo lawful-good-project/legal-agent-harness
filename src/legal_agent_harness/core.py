@@ -182,6 +182,14 @@ def validate_response(response: Any) -> Dict[str, Any]:
         raise ResponseValidationError(
             f"ответ.expected: обязательные поля отсутствуют/пусты: {missing}"
         )
+    try:
+        confidence = float(expected["confidence"])
+    except (TypeError, ValueError):
+        raise ResponseValidationError("ответ.expected.confidence должен быть числом")
+    if not 0.0 <= confidence <= 1.0:
+        raise ResponseValidationError(
+            "ответ.expected.confidence должен быть в диапазоне [0, 1]"
+        )
     return response
 
 

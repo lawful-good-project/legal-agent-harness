@@ -16,9 +16,11 @@ if SRC not in sys.path:
 from legal_agent_harness import (  # noqa: E402
     CaseValidationError,
     Redactor,
+    ResponseValidationError,
     redact,
     run_case,
     validate_case,
+    validate_response,
     validate_temporal_consistency,
 )
 from legal_agent_harness.adapters import (  # noqa: E402
@@ -283,3 +285,30 @@ def test_cli_replay_exit_status():
 def test_cli_no_command_returns_error():
     proc = _run_cli([])
     assert proc.returncode == 1
+
+
+@pytest.mark.parametrize("confidence", [float("nan"), "NaN", float("inf"), -0.1, 1.1])
+def test_response_rejects_invalid_confidence(confidence):
+    case = _amendment_case()
+    response = {"expected": dict(case["expected"], confidence=confidence)}
+    adapter = ReplayAdapter({case["case_id"]: {"response": response}})
+    result = run_case(case, adapter, max_rounds=1)
+    assert result.approved is False
+    assert result.status == "needs_expert_approval"
+    assert result.events[-1]["payload"]["needs_expert_approval"] is True
+    with pytest.raises(ResponseValidationError, match="confidence"):
+        validate_response(response)
+
+
+@pytest.mark.parametrize(
+    "expected, confidence", [(0, 0), (1, 1), (0.9, 0.9), (0.9, 0.9 + 5e-10)]
+)
+def test_response_accepts_valid_confidence(expected, confidence):
+    case = _amendment_case()
+    case["expected"]["confidence"] = expected
+    response = {"expected": dict(case["expected"], confidence=confidence)}
+    assert validate_response(response) == response
+    adapter = ReplayAdapter({case["case_id"]: {"response": response}})
+    result = run_case(case, adapter)
+    assert result.approved is True
+    assert result.needs_expert_approval is True
