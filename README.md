@@ -1,5 +1,7 @@
 # legal-agent-harness
 
+[![Открыть ноутбук в Google Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/lawful-good-project/legal-agent-harness/blob/main/notebooks/law_extract_fixed.ipynb)
+
 Минимальный рабочий harness для **калибровки правовых агентов** на наборе
 экспертно-проверенных кейсов. Только стандартная библиотека Python, без сети.
 

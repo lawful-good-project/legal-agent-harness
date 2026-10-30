@@ -1,5 +1,7 @@
 # Экспертное извлечение изменений из НПА
 
+[![Открыть в Google Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/lawful-good-project/legal-agent-harness/blob/main/notebooks/law_extract_fixed.ipynb)
+
 [`law_extract_fixed.ipynb`](law_extract_fixed.ipynb) — самостоятельный Google Colab
 ноутбук для извлечения изменений из документов и проверки экспертом в HTML-форме.
 Исходник: [Colab](https://colab.research.google.com/drive/1JDWv7I3x0tQwWTCfXIdr_c55gzqGMBGR).
