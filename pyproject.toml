@@ -14,6 +14,8 @@ dependencies = []
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
+# Только для разработки: автоформатирование.
+dev = ["ruff>=0.4"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -23,3 +25,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"

@@ -123,6 +123,20 @@ python -m pytest -q tests/test_harness.py
 
 Тесты не используют сеть.
 
+## Форматирование кода
+
+Автоформатирование через [ruff](https://docs.astral.sh/ruff/) — только для
+разработки, в runtime-зависимости не входит. Настройки — `[tool.ruff]`
+в `pyproject.toml`.
+
+```bash
+pip install -e ".[dev]"
+python scripts/format_code.py            # отформатировать src, scripts, tests
+python scripts/format_code.py --check    # только проверить
+python scripts/format_code.py --diff     # показать изменения
+python scripts/format_code.py src/legal_agent_harness/core.py   # отдельные файлы
+```
+
 ## Калибровка изменений в НПА
 
 Для задачи курса `visualcomments/ip-law-course` используйте
