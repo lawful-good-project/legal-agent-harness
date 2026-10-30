@@ -150,6 +150,45 @@ def test_events_have_no_secrets():
     assert "abcdef0123456789abcdef0123456789" not in blob
 
 
+def _leaky_response(case):
+    return {
+        "expected": dict(case["expected"]),
+        "api_key": "test-secret-value",
+        "note": "пишите на expert@example.com",
+    }
+
+
+def test_output_has_no_secrets():
+    case = _case()
+    adapter = ReplayAdapter({"case-001": {"response": _leaky_response(case)}})
+    result = run_case(case, adapter)
+    assert result.approved is True
+    blob = json.dumps(result.to_dict(), ensure_ascii=False)
+    assert "test-secret-value" not in blob
+    assert "expert@example.com" not in blob
+    assert result.output["api_key"] == "[REDACTED]"
+    assert result.output["expected"] == case["expected"]
+
+
+def test_cli_out_and_stdout_have_no_secrets(tmp_path):
+    case = _case()
+    cases = tmp_path / "cases.jsonl"
+    cases.write_text(json.dumps(case, ensure_ascii=False) + "\n", encoding="utf-8")
+    responses = tmp_path / "responses.jsonl"
+    responses.write_text(
+        json.dumps({"case_id": "case-001", "response": _leaky_response(case)}) + "\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "run.json"
+    proc = _run_cli(
+        ["replay", "--cases", str(cases), "--responses", str(responses), "--out", str(out)]
+    )
+    assert proc.returncode == 0
+    for text in (proc.stdout, out.read_text(encoding="utf-8")):
+        assert "test-secret-value" not in text
+        assert "expert@example.com" not in text
+
+
 def test_validate_case_rejects_missing_source_field():
     case = _case()
     del case["source"]["coordinate"]

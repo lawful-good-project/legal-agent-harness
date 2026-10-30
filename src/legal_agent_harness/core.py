@@ -412,7 +412,8 @@ def run_case(
         approved=approved,
         needs_expert_approval=True,
         events=[ev.to_dict(redactor) for ev in events],
-        output=last_response or {},
+        # output печатается CLI и пишется в --out, поэтому чистится как события.
+        output=redactor.scrub(last_response or {}),
     )
 
 
