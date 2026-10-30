@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 from dataclasses import dataclass, field
@@ -344,7 +345,7 @@ class RunResult:
 
 def build_agent_task(case: Dict[str, Any]) -> Dict[str, Any]:
     """Возвращает задание для агента: только поля AGENT_TASK_FIELDS."""
-    return {key: case[key] for key in AGENT_TASK_FIELDS}
+    return copy.deepcopy({key: case[key] for key in AGENT_TASK_FIELDS})
 
 
 def run_case(
@@ -369,7 +370,7 @@ def run_case(
     def emit(event: str, round_no: int, payload: Dict[str, Any]) -> None:
         events.append(RunEvent(case_id, event, round_no, payload))
 
-    emit("task", 0, {"source": case["source"], "expected": case["expected"]})
+    emit("task", 0, build_agent_task(case))
 
     attempts = 0
     last_response: Optional[Dict[str, Any]] = None

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import shlex
 import shutil
@@ -88,17 +89,29 @@ class LocalProcessAdapter(Adapter):
     ) -> None:
         if isinstance(command, str):
             command = (
-                command if use_shell else shlex.split(command, posix=os.name != "nt")
+                [command]
+                if use_shell
+                else shlex.split(command, posix=os.name != "nt")
             )
         if not command:
             raise AdapterError("команда не задана")
-        if timeout <= 0:
-            raise AdapterError("timeout должен быть > 0")
-        if max_output_bytes <= 0:
-            raise AdapterError("max_output_bytes должен быть > 0")
+        try:
+            timeout_value = float(timeout)
+        except (TypeError, ValueError) as exc:
+            raise AdapterError("timeout должен быть конечным числом > 0") from exc
+        if not math.isfinite(timeout_value) or timeout_value <= 0:
+            raise AdapterError("timeout должен быть конечным числом > 0")
+        try:
+            max_output_value = int(max_output_bytes)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise AdapterError("max_output_bytes должен быть целым числом > 0") from exc
+        if isinstance(max_output_bytes, float) and not max_output_bytes.is_integer():
+            raise AdapterError("max_output_bytes должен быть целым числом > 0")
+        if max_output_value <= 0:
+            raise AdapterError("max_output_bytes должен быть целым числом > 0")
         self._command: List[str] = list(command)
-        self._timeout = float(timeout)
-        self._max_output_bytes = int(max_output_bytes)
+        self._timeout = timeout_value
+        self._max_output_bytes = max_output_value
         self._use_shell = use_shell
         self._cwd = cwd
 
@@ -155,7 +168,7 @@ class LocalProcessAdapter(Adapter):
         def feed() -> None:
             try:
                 proc.stdin.write(payload)
-            except OSError:
+            except (OSError, ValueError):
                 pass  # процесс не читает stdin или уже завершился
             finally:
                 try:

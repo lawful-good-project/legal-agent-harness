@@ -323,9 +323,23 @@ def test_run_case_does_not_pass_expected_to_adapter():
             seen.append(task)
             return {"expected": case["expected"]}
 
-    run_case(case, _SpyAdapter())
+    result = run_case(case, _SpyAdapter())
     assert seen == [build_agent_task(case)]
     assert sorted(seen[0]) == ["case_id", "source"]
+    assert "expected" not in result.events[0]["payload"]
+
+
+def test_agent_task_is_deep_copied_before_adapter():
+    case = _amendment_case()
+
+    class _MutatingAdapter:
+        def respond(self, task):
+            task["source"]["identifier"] = "подменено"
+            return {"expected": case["expected"]}
+
+    result = run_case(case, _MutatingAdapter(), max_rounds=1)
+    assert case["source"]["identifier"] == "ФЗ от 01.07.2017 № 147-ФЗ"
+    assert result.events[0]["payload"]["source"]["identifier"] == "ФЗ от 01.07.2017 № 147-ФЗ"
 
 
 def test_local_process_echo_agent_is_not_approved():
@@ -435,10 +449,33 @@ def test_local_process_missing_executable():
         adapter.respond({})
 
 
+def test_local_process_shell_string_command():
+    if os.name == "nt":
+        command = "echo {}"
+    else:
+        command = "printf '{}'"
+    adapter = LocalProcessAdapter(command, use_shell=True)
+    assert adapter.respond({}) == {}
+
+
+def test_local_process_rejects_nonfinite_limits():
+    with pytest.raises(AdapterError):
+        LocalProcessAdapter([sys.executable], timeout=float("inf"))
+    with pytest.raises(AdapterError):
+        LocalProcessAdapter([sys.executable], timeout=float("nan"))
+    with pytest.raises(AdapterError):
+        LocalProcessAdapter([sys.executable], max_output_bytes=float("nan"))
+
+
 def test_local_process_string_command_does_not_use_shell():
     code = "import json, sys; print(json.dumps({'argv': sys.argv[1:]}))"
-    command = f"{shlex.quote(sys.executable)} -c {shlex.quote(code)} ; echo hacked"
-    adapter = get_adapter("local-process", command=command)
+    if os.name == "nt":
+        adapter = LocalProcessAdapter(
+            [sys.executable, "-c", code, ";", "echo", "hacked"]
+        )
+    else:
+        command = f"{shlex.quote(sys.executable)} -c {shlex.quote(code)} ; echo hacked"
+        adapter = get_adapter("local-process", command=command)
     assert adapter.respond({}) == {"argv": [";", "echo", "hacked"]}
 
 
