@@ -23,6 +23,7 @@ from legal_agent_harness import (  # noqa: E402
 )
 from legal_agent_harness.adapters import (  # noqa: E402
     AdapterError,
+    LocalProcessAdapter,
     ReplayAdapter,
     get_adapter,
 )
@@ -303,6 +304,24 @@ def test_replay_adapter_missing_case():
 def test_get_adapter_local_process_requires_command():
     with pytest.raises(AdapterError):
         get_adapter("local-process")
+
+
+def _python_agent(code):
+    return LocalProcessAdapter([sys.executable, "-c", code], timeout=10)
+
+
+def test_local_process_agent_answer_is_approved():
+    case = _amendment_case()
+    answer = json.dumps({"expected": case["expected"]}, ensure_ascii=True)
+    adapter = _python_agent(
+        "import json, sys\n"
+        "task = json.loads(sys.stdin.buffer.read().decode('utf-8'))\n"
+        "assert task['source']['identifier'] == 'ФЗ от 01.07.2017 № 147-ФЗ'\n"
+        f"print({answer!r})\n"
+    )
+    result = run_case(case, adapter)
+    assert result.approved is True
+    assert result.rounds == 1
 
 
 def test_examples_load_and_pass():

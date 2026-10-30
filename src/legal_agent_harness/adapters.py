@@ -101,7 +101,7 @@ class LocalProcessAdapter(Adapter):
         return list(self._command)
 
     def respond(self, case: Dict[str, Any]) -> Dict[str, Any]:
-        payload = json.dumps(case, ensure_ascii=False)
+        payload = json.dumps(case, ensure_ascii=False).encode("utf-8")
         try:
             proc = subprocess.run(
                 self._command if not self._use_shell else " ".join(self._command),
