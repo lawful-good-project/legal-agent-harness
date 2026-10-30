@@ -138,7 +138,10 @@ def cmd_report(args: argparse.Namespace) -> int:
     if not all(isinstance(r, dict) for r in results):
         print("ОШИБКА: элементы отчёта должны быть JSON-объектами", file=sys.stderr)
         return EXIT_ERROR
-    if not all(isinstance(r.get("rounds", 0), int) for r in results):
+    if not all(
+        isinstance(r.get("rounds", 0), int) and not isinstance(r.get("rounds", 0), bool)
+        for r in results
+    ):
         print("ОШИБКА: поле rounds в отчёте должно быть целым числом", file=sys.stderr)
         return EXIT_ERROR
 
