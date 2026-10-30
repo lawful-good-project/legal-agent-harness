@@ -60,6 +60,14 @@ EXPECTED_ALLOWED_FIELDS = frozenset(
     EXPECTED_REQUIRED_FIELDS + ("effective_from", "effective_to", "change_description")
 )
 
+# Обязательные поля expected, которые должны быть непустыми строками.
+EXPECTED_STRING_FIELDS = ("norm_id", "predicate", "subject", "object")
+
+CHANGE_DESCRIPTION_MAX_LENGTH = 2000
+
+# Дата в source/expected: ГГГГ, ГГГГ-ММ или ГГГГ-ММ-ДД.
+_DATE_RE = re.compile(r"[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?")
+
 # Секреты: ключи, которые должны быть вырезаны из событий.
 _SECRET_KEY_RE = re.compile(
     r"(token|secret|api[_-]?key|password|passwd|credential|authorization|bearer)",
@@ -88,6 +96,11 @@ def _is_str(value: Any) -> bool:
     return isinstance(value, str) and value.strip() != ""
 
 
+def _is_optional_date(value: Any) -> bool:
+    """None или дата вида ГГГГ, ГГГГ-ММ, ГГГГ-ММ-ДД."""
+    return value is None or (isinstance(value, str) and bool(_DATE_RE.fullmatch(value)))
+
+
 def validate_case(case: Any) -> Dict[str, Any]:
     """Проверяет кейс и возвращает его же.
 
@@ -113,15 +126,10 @@ def validate_case(case: Any) -> Dict[str, Any]:
     if extra_src:
         raise CaseValidationError(f"[{case_id}] source: недопустимые поля: {extra_src}")
 
-    if "effective_date" in source:
-        date = source["effective_date"]
-        if date is not None and (
-            not isinstance(date, str)
-            or not re.fullmatch(r"[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?", date)
-        ):
-            raise CaseValidationError(
-                f"[{case_id}] source.effective_date имеет неверный формат"
-            )
+    if "effective_date" in source and not _is_optional_date(source["effective_date"]):
+        raise CaseValidationError(
+            f"[{case_id}] source.effective_date имеет неверный формат"
+        )
 
     expected = case.get("expected")
     if not isinstance(expected, dict):
@@ -142,6 +150,23 @@ def validate_case(case: Any) -> Dict[str, Any]:
         raise CaseValidationError(
             f"[{case_id}] expected: недопустимые поля: {extra_exp}"
         )
+    not_str = [f for f in EXPECTED_STRING_FIELDS if not _is_str(expected[f])]
+    if not_str:
+        raise CaseValidationError(
+            f"[{case_id}] expected: поля должны быть непустыми строками: {not_str}"
+        )
+    for f in ("effective_from", "effective_to"):
+        if f in expected and not _is_optional_date(expected[f]):
+            raise CaseValidationError(f"[{case_id}] expected.{f} имеет неверный формат")
+    description = expected.get("change_description")
+    if description is not None and (
+        not isinstance(description, str)
+        or len(description) > CHANGE_DESCRIPTION_MAX_LENGTH
+    ):
+        raise CaseValidationError(
+            f"[{case_id}] expected.change_description должен быть строкой "
+            f"не длиннее {CHANGE_DESCRIPTION_MAX_LENGTH} символов"
+        )
 
     if source.get("doc_type") == "amending_act":
         predicate = expected.get("predicate")
@@ -151,11 +176,10 @@ def validate_case(case: Any) -> Dict[str, Any]:
             )
 
     conf = expected.get("confidence")
-    try:
-        conf_val = float(conf)
-    except (TypeError, ValueError):
+    # bool — подкласс int в Python, но в JSON true не число.
+    if isinstance(conf, bool) or not isinstance(conf, (int, float)):
         raise CaseValidationError(f"[{case_id}] expected.confidence должен быть числом")
-    if not 0.0 <= conf_val <= 1.0:
+    if not 0.0 <= conf <= 1.0:
         raise CaseValidationError(
             f"[{case_id}] expected.confidence должен быть в диапазоне [0, 1]"
         )

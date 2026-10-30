@@ -238,6 +238,47 @@ def test_effective_date_format_is_checked():
         validate_case(case)
 
 
+@pytest.mark.parametrize(
+    "field, value, message",
+    [
+        ("confidence", "0.9", "confidence должен быть числом"),
+        ("confidence", True, "confidence должен быть числом"),
+        ("confidence", float("nan"), r"confidence должен быть в диапазоне"),
+        ("norm_id", 1252, "непустыми строками"),
+        ("subject", ["ГК РФ ст. 1252"], "непустыми строками"),
+        ("object", "   ", "непустыми строками"),
+        ("effective_from", "вчера", "effective_from имеет неверный формат"),
+        ("effective_from", "01.10.2017", "effective_from имеет неверный формат"),
+        ("effective_to", 2018, "effective_to имеет неверный формат"),
+        ("change_description", 42, "change_description"),
+        ("change_description", "х" * 2001, "change_description"),
+    ],
+)
+def test_validate_case_rejects_wrong_expected_types(field, value, message):
+    case = _amendment_case()
+    case["expected"][field] = value
+    with pytest.raises(CaseValidationError, match=message):
+        validate_case(case)
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [
+        ("confidence", 1),
+        ("confidence", 0.0),
+        ("effective_from", "2017"),
+        ("effective_from", "2017-10"),
+        ("effective_to", None),
+        ("change_description", None),
+        ("change_description", "х" * 2000),
+    ],
+)
+def test_validate_case_accepts_valid_expected_values(field, value):
+    case = _amendment_case()
+    case["expected"][field] = value
+    assert validate_case(case) == case
+
+
 def test_amendment_temporal_error_prevents_approval():
     case = _amendment_case()
     wrong = dict(case["expected"], effective_from="2017-09-30")
