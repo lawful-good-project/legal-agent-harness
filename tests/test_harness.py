@@ -283,3 +283,24 @@ def test_cli_replay_exit_status():
 def test_cli_no_command_returns_error():
     proc = _run_cli([])
     assert proc.returncode == 1
+
+
+def test_amendment_nan_confidence_prevents_approval():
+    fixture = os.path.join(ROOT, "tests", "fixtures", "llm_nan_response.json")
+    with open(fixture, encoding="utf-8") as fh:
+        recorded_confidence = json.load(fh)["expected"]["confidence"]
+    case = _amendment_case()
+    for confidence in (recorded_confidence, "NaN"):
+        response = {"expected": dict(case["expected"], confidence=confidence)}
+        adapter = ReplayAdapter({case["case_id"]: {"response": response}})
+        result = run_case(case, adapter)
+        assert result.approved is False, confidence
+
+
+def test_confidence_comparison_preserves_tolerance():
+    case = _amendment_case()
+    for confidence, approved in [(0.9 + 5e-10, True), (0.9 + 2e-9, False)]:
+        response = {"expected": dict(case["expected"], confidence=confidence)}
+        adapter = ReplayAdapter({case["case_id"]: {"response": response}})
+        result = run_case(case, adapter)
+        assert result.approved is approved, confidence
