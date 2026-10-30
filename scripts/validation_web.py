@@ -46,7 +46,7 @@ def parse_form(content_type, body):
 
         data = part.get_payload(decode=True) or b""
         if part.get_filename() is not None:
-            files[name] = (part.get_filename(), data)
+            files.setdefault(name, (part.get_filename(), data))
         elif data:
             fields.setdefault(name, data.decode("utf-8", "replace"))
 
@@ -81,8 +81,13 @@ class Handler(BaseHTTPRequestHandler):
         if len(data) > MAX_UPLOAD_BYTES:
             return self._send(render_form(message="Файл больше 20 МБ", values=form), 400)
 
+        if "score" not in form:
+            return self._send(
+                render_form(message="Оценка должна быть целым числом от 0 до 10", values=form),
+                400,
+            )
         try:
-            score = int(form.get("score", "0"))
+            score = int(form["score"])
         except ValueError:
             return self._send(
                 render_form(message="Оценка должна быть целым числом от 0 до 10", values=form),
