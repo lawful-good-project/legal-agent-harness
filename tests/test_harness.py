@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import sys
+import time
 
 import pytest
 
@@ -16,6 +18,7 @@ if SRC not in sys.path:
 from legal_agent_harness import (  # noqa: E402
     CaseValidationError,
     Redactor,
+    build_agent_task,
     redact,
     run_case,
     validate_case,
@@ -306,8 +309,47 @@ def test_get_adapter_local_process_requires_command():
         get_adapter("local-process")
 
 
-def _python_agent(code):
-    return LocalProcessAdapter([sys.executable, "-c", code], timeout=10)
+def _python_agent(code, **kwargs):
+    kwargs.setdefault("timeout", 10)
+    return LocalProcessAdapter([sys.executable, "-c", code], **kwargs)
+
+
+def test_run_case_does_not_pass_expected_to_adapter():
+    case = _amendment_case()
+    seen = []
+
+    class _SpyAdapter:
+        def respond(self, task):
+            seen.append(task)
+            return {"expected": case["expected"]}
+
+    result = run_case(case, _SpyAdapter())
+    assert seen == [build_agent_task(case)]
+    assert sorted(seen[0]) == ["case_id", "source"]
+    assert "expected" not in result.events[0]["payload"]
+
+
+def test_agent_task_is_deep_copied_before_adapter():
+    case = _amendment_case()
+
+    class _MutatingAdapter:
+        def respond(self, task):
+            task["source"]["identifier"] = "подменено"
+            return {"expected": case["expected"]}
+
+    result = run_case(case, _MutatingAdapter(), max_rounds=1)
+    assert case["source"]["identifier"] == "ФЗ от 01.07.2017 № 147-ФЗ"
+    assert result.events[0]["payload"]["source"]["identifier"] == "ФЗ от 01.07.2017 № 147-ФЗ"
+
+
+def test_local_process_echo_agent_is_not_approved():
+    case = _amendment_case()
+    adapter = _python_agent(
+        "import sys\n"
+        "sys.stdout.buffer.write(sys.stdin.buffer.read())\n"
+    )
+    result = run_case(case, adapter, max_rounds=1)
+    assert result.approved is False
 
 
 def test_local_process_agent_answer_is_approved():
@@ -322,6 +364,129 @@ def test_local_process_agent_answer_is_approved():
     result = run_case(case, adapter)
     assert result.approved is True
     assert result.rounds == 1
+
+
+def test_local_process_returns_json_object():
+    adapter = _python_agent("print('{\"status\": \"ok\", \"expected\": {}}')")
+    assert adapter.respond({}) == {"status": "ok", "expected": {}}
+
+
+def test_local_process_timeout():
+    adapter = _python_agent("import time; time.sleep(30)", timeout=0.5)
+    started = time.monotonic()
+    with pytest.raises(AdapterError, match="таймаут"):
+        adapter.respond({})
+    assert time.monotonic() - started < 5
+
+
+def test_local_process_output_at_limit_is_accepted():
+    adapter = _python_agent(
+        "import sys; sys.stdout.write('{}' + ' ' * 98)", max_output_bytes=100
+    )
+    assert adapter.respond({}) == {}
+
+
+def test_local_process_output_over_limit():
+    adapter = _python_agent(
+        "import sys; sys.stdout.write('{}' + ' ' * 99)", max_output_bytes=100
+    )
+    with pytest.raises(AdapterError, match="лимит"):
+        adapter.respond({})
+
+
+def test_local_process_endless_output_is_cut_off():
+    # Процесс пишет без конца: лимит должен сработать до таймаута,
+    # не накапливая весь вывод в памяти.
+    adapter = _python_agent(
+        "import sys\n"
+        "while True:\n"
+        "    sys.stdout.buffer.write(b'x' * 65536)\n",
+        max_output_bytes=1000,
+        timeout=30,
+    )
+    started = time.monotonic()
+    with pytest.raises(AdapterError, match="лимит"):
+        adapter.respond({})
+    assert time.monotonic() - started < 10
+
+
+def test_local_process_nonzero_exit():
+    adapter = _python_agent("import sys; sys.stderr.write('boom'); sys.exit(3)")
+    with pytest.raises(AdapterError, match="кодом 3: boom"):
+        adapter.respond({})
+
+
+@pytest.mark.parametrize(
+    "stdout, message",
+    [
+        ("", "пустой stdout"),
+        ("not json", "некорректный JSON"),
+        ("[1, 2]", "JSON-объект"),
+    ],
+)
+def test_local_process_invalid_stdout(stdout, message):
+    adapter = _python_agent(f"import sys; sys.stdout.write({stdout!r})")
+    with pytest.raises(AdapterError, match=message):
+        adapter.respond({})
+
+
+def test_local_process_child_holding_stdout_does_not_hang():
+    adapter = _python_agent(
+        "import subprocess, sys\n"
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(5)'])\n"
+        "print('{}')\n",
+        timeout=30,
+    )
+    started = time.monotonic()
+    with pytest.raises(AdapterError, match="не был закрыт"):
+        adapter.respond({})
+    assert time.monotonic() - started < 4
+
+
+def test_local_process_missing_executable():
+    adapter = LocalProcessAdapter(["legal-agent-harness-no-such-binary"])
+    with pytest.raises(AdapterError, match="не найден"):
+        adapter.respond({})
+
+
+def test_local_process_shell_string_command():
+    if os.name == "nt":
+        command = "echo {}"
+    else:
+        command = "printf '{}'"
+    adapter = LocalProcessAdapter(command, use_shell=True)
+    assert adapter.respond({}) == {}
+
+
+def test_local_process_rejects_nonfinite_limits():
+    with pytest.raises(AdapterError):
+        LocalProcessAdapter([sys.executable], timeout=float("inf"))
+    with pytest.raises(AdapterError):
+        LocalProcessAdapter([sys.executable], timeout=float("nan"))
+    with pytest.raises(AdapterError):
+        LocalProcessAdapter([sys.executable], max_output_bytes=float("nan"))
+
+
+def test_local_process_string_command_does_not_use_shell():
+    code = "import json, sys; print(json.dumps({'argv': sys.argv[1:]}))"
+    if os.name == "nt":
+        adapter = LocalProcessAdapter(
+            [sys.executable, "-c", code, ";", "echo", "hacked"]
+        )
+    else:
+        command = f"{shlex.quote(sys.executable)} -c {shlex.quote(code)} ; echo hacked"
+        adapter = get_adapter("local-process", command=command)
+    assert adapter.respond({}) == {"argv": [";", "echo", "hacked"]}
+
+
+def test_local_process_failure_is_reported_not_raised():
+    case = _amendment_case()
+    adapter = _python_agent("import sys; sys.exit(1)")
+    result = run_case(case, adapter, max_rounds=2)
+    assert result.approved is False
+    assert result.rounds == 2
+    feedback = [e for e in result.events if e["event"] == "validator_feedback"]
+    assert all("ошибка адаптера" in e["payload"]["reason"] for e in feedback)
 
 
 def test_examples_load_and_pass():

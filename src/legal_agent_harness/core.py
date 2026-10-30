@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 from dataclasses import dataclass, field
@@ -67,6 +68,9 @@ CHANGE_DESCRIPTION_MAX_LENGTH = 2000
 
 # Дата в source/expected: ГГГГ, ГГГГ-ММ или ГГГГ-ММ-ДД.
 _DATE_RE = re.compile(r"[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?")
+
+# Поля кейса, которые видит агент. Эталон expected агенту не передаётся.
+AGENT_TASK_FIELDS = ("case_id", "source")
 
 # Секреты: ключи, которые должны быть вырезаны из событий.
 _SECRET_KEY_RE = re.compile(
@@ -339,6 +343,11 @@ class RunResult:
         }
 
 
+def build_agent_task(case: Dict[str, Any]) -> Dict[str, Any]:
+    """Возвращает задание для агента: только поля AGENT_TASK_FIELDS."""
+    return copy.deepcopy({key: case[key] for key in AGENT_TASK_FIELDS})
+
+
 def run_case(
     case: Dict[str, Any],
     adapter: Any,
@@ -361,7 +370,7 @@ def run_case(
     def emit(event: str, round_no: int, payload: Dict[str, Any]) -> None:
         events.append(RunEvent(case_id, event, round_no, payload))
 
-    emit("task", 0, {"source": case["source"], "expected": case["expected"]})
+    emit("task", 0, build_agent_task(case))
 
     attempts = 0
     last_response: Optional[Dict[str, Any]] = None
@@ -371,7 +380,7 @@ def run_case(
     for round_no in range(1, max_rounds + 1):
         attempts = round_no
         try:
-            raw = adapter.respond(case)
+            raw = adapter.respond(build_agent_task(case))
         except Exception as exc:  # адаптер обязан изолировать свои ошибки
             last_error = f"ошибка адаптера: {exc}"
             emit("agent_answer", round_no, {"error": last_error})

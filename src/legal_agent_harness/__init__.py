@@ -5,12 +5,14 @@
 """
 
 from .core import (
+    AGENT_TASK_FIELDS,
     CaseValidationError,
     HarnessError,
     Redactor,
     RunEvent,
     RunResult,
     ResponseValidationError,
+    build_agent_task,
     load_cases,
     load_responses,
     redact,
@@ -30,12 +32,14 @@ from .adapters import (
 )
 
 __all__ = [
+    "AGENT_TASK_FIELDS",
     "CaseValidationError",
     "HarnessError",
     "Redactor",
     "RunEvent",
     "RunResult",
     "ResponseValidationError",
+    "build_agent_task",
     "load_cases",
     "load_responses",
     "redact",
