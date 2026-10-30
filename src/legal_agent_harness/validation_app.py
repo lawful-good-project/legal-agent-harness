@@ -40,7 +40,7 @@ def extract_graph(filename: str, data: bytes, authority: str = "не указа�
     edges: List[Dict[str, Any]] = []
     records: List[Dict[str, Any]] = []
     pred_re = re.compile(r"(изложить|изменить|дополнить|ввести|исключить|признать[^.]{0,50}утративш|уточнить)", re.I)
-    art_re = re.compile(r"(?:статья|ст\.?)[\s№]*(\d+(?:\.\d+)?)", re.I)
+    art_re = re.compile(r"(?:стать[яю]|ст\.?)[\s№]*(\d+(?:\.\d+)?)", re.I)
     for i, line in enumerate(lines):
         am = art_re.search(line)
         pm = pred_re.search(line)
@@ -48,6 +48,8 @@ def extract_graph(filename: str, data: bytes, authority: str = "не указа�
         article = am.group(1) if am else "не определена"
         raw = (pm.group(1).lower() if pm else "изменить")
         predicate = "дополнена" if "дополн" in raw else "введена" if "вве" in raw else "исключена" if "исключ" in raw else "признана_утратившей_силу" if "утратив" in raw else "уточнена" if "уточ" in raw else "изменена"
+        if raw == "изложить":
+            predicate = "изложена_в_новой_редакции"
         node_act, node_norm = f"act:{digest[:12]}", f"norm:{article}"
         records.append({"norm_id": f"document/article/{article}", "predicate": predicate, "subject": f"статья {article}", "object": filename, "effective_from": date, "effective_to": None, "change_description": line[:500], "confidence": 0.55 if not am or not pm else 0.75, "coordinate": f"строка {i+1}"})
         edges.append({"from": node_act, "to": node_norm, "relation": predicate, "evidence": line[:500], "coordinate": f"строка {i+1}"})
