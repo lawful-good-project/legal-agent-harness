@@ -141,7 +141,7 @@ def cmd_report(args: argparse.Namespace) -> int:
     pending = sum(1 for r in results if r.get("needs_expert_approval"))
     print("Отчёт о калибровке")
     print(f"  кейсов:              {total}")
-    print(f"  одобрено:            {approved}")
+    print(f"  совпало:             {approved}")
     print(f"  ждут эксперта:       {pending}")
     print(
         f"  среднее число раундов: "

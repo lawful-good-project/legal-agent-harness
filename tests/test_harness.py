@@ -379,6 +379,48 @@ def test_cli_replay_exit_status():
     assert "needs_expert_approval" in proc.stdout
 
 
+@pytest.fixture
+def report_input(tmp_path):
+    results = [
+        {
+            "case_id": "matched",
+            "status": "approved",
+            "rounds": 1,
+            "approved": True,
+            "needs_expert_approval": True,
+            "events": [],
+            "output": {},
+        },
+        {
+            "case_id": "unmatched",
+            "status": "needs_expert_approval",
+            "rounds": 3,
+            "approved": False,
+            "needs_expert_approval": True,
+            "events": [],
+            "output": {},
+        },
+    ]
+    path = tmp_path / "report.json"
+    path.write_text(json.dumps(results, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+def test_cli_report_values_and_format(report_input):
+    proc = _run_cli(["report", str(report_input)])
+    assert proc.returncode == 0
+    assert proc.stderr == ""
+    assert proc.stdout == (
+        "Отчёт о калибровке\n"
+        "  кейсов:              2\n"
+        "  совпало:             1\n"
+        "  ждут эксперта:       2\n"
+        "  среднее число раундов: 2.00\n"
+        "  OK matched status=approved rounds=1\n"
+        "  !! unmatched status=needs_expert_approval rounds=3\n"
+    )
+
+
 def test_cli_no_command_returns_error():
     proc = _run_cli([])
     assert proc.returncode == 1
