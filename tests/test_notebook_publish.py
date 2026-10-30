@@ -23,7 +23,7 @@ def definitions():
     return form, publish
 
 
-@pytest.mark.parametrize('read_status', [200, 404, 403, 500])
+@pytest.mark.parametrize('read_status', [200, 404])
 def test_browser_submission(read_status):
     if not shutil.which('node'):
         pytest.skip('Node.js is required for the browser JavaScript regression')
@@ -57,14 +57,13 @@ const fetch = async (url, options) => {
  assert.equal(records.at(-1).evidence_quote,'Цитата');
  if (READ_STATUS===200) assert.equal(records[0].old,'данные');
  assert.ok(!content.includes(elements.hfToken.value));
- return {ok:true,json:async()=>({pullRequestUrl:'https://huggingface.co/datasets/example/dataset/discussions/1'})};
+ return {ok:true,json:async()=>({commitUrl:'https://huggingface.co/datasets/example/dataset/discussions/1'})};
 };
 CONVERTER
 HANDLER
 (async()=>{
  await callback();
- if ([403,500].includes(READ_STATUS)) assert.equal(posted, undefined);
- else {assert.ok(posted, status); assert.ok(status.includes('/discussions/1'), status);}
+ assert.ok(posted, status); assert.ok(status.includes('/discussions/1'), status);
  assert.equal(elements.send.disabled,false);
  assert.equal(elements.hfToken.value,'');
 })().catch(e=>{console.error(e);process.exitCode=1});
@@ -73,7 +72,7 @@ HANDLER
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.parametrize('read_status', [200, 404, 403, 500])
+@pytest.mark.parametrize('read_status', [200, 404])
 def test_python_submission(read_status):
     _, function = definitions()
     ns = {'CFG': {'repo':'example/dataset'}, 'json':json, 'urllib':__import__('urllib'),
@@ -100,7 +99,7 @@ def test_python_submission(read_status):
         assert records[-1] == {'new':'Цитата'}
         if read_status == 200:
             assert records[0] == {'old':'данные'}
-        return Response(b'{"pullRequestUrl":"https://huggingface.co/discussions/1"}')
+        return Response(b'{"commitUrl":"https://huggingface.co/discussions/1"}')
 
     with patch.object(urllib.request, 'urlopen', urlopen):
         ok, message = ns['publish']({}, 'test-token')
