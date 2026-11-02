@@ -18,10 +18,12 @@ if SRC not in sys.path:
 from legal_agent_harness import (  # noqa: E402
     CaseValidationError,
     Redactor,
+    ResponseValidationError,
     build_agent_task,
     redact,
     run_case,
     validate_case,
+    validate_response,
     validate_temporal_consistency,
 )
 from legal_agent_harness.adapters import (  # noqa: E402
@@ -283,6 +285,55 @@ def test_validate_case_accepts_valid_expected_values(field, value):
     assert validate_case(case) == case
 
 
+@pytest.mark.parametrize("case_factory", [_case, _amendment_case])
+@pytest.mark.parametrize("field", ["effective_from", "effective_to"])
+@pytest.mark.parametrize("value", [2018, True, [], {}, "01.01.2018", ""])
+def test_validate_response_rejects_malformed_dates(case_factory, field, value):
+    response = {"expected": dict(case_factory()["expected"], **{field: value})}
+    with pytest.raises(ResponseValidationError, match=f"expected: поле {field}"):
+        validate_response(response)
+
+
+@pytest.mark.parametrize("field", ["effective_from", "effective_to"])
+@pytest.mark.parametrize("value", [None, "2018", "2018-01", "2018-01-01"])
+def test_validate_response_accepts_supported_dates(field, value):
+    response = {"expected": dict(_case()["expected"], **{field: value})}
+    assert validate_response(response) is response
+
+
+def test_validate_response_accepts_omitted_dates():
+    expected = dict(_case()["expected"])
+    expected.pop("effective_from")
+    expected.pop("effective_to")
+    response = {"expected": expected}
+    assert validate_response(response) is response
+
+
+@pytest.mark.parametrize(
+    "field, value", [("effective_from", 2018), ("effective_to", ["2018-01-01"])]
+)
+def test_run_case_retries_after_malformed_response_date(field, value):
+    case = _amendment_case()
+    wrong = {"expected": dict(case["expected"], **{field: value})}
+    correct = {"expected": dict(case["expected"])}
+    adapter = _CountingAdapter([wrong, correct])
+
+    result = run_case(case, adapter, max_rounds=2)
+
+    assert adapter.calls == result.rounds == 2
+    assert result.approved is True
+    assert result.needs_expert_approval is True
+    feedback = [
+        event["payload"]
+        for event in result.events
+        if event["event"] == "validator_feedback"
+    ]
+    assert feedback[0]["ok"] is False
+    assert f"expected: поле {field}" in feedback[0]["reason"]
+    assert feedback[1]["ok"] is True
+    assert result.events[-1]["payload"]["needs_expert_approval"] is True
+
+
 def test_amendment_temporal_error_prevents_approval():
     case = _amendment_case()
     wrong = dict(case["expected"], effective_from="2017-09-30")
@@ -542,6 +593,49 @@ def test_cli_replay_exit_status():
     )
     assert proc.returncode == 0
     assert "needs_expert_approval" in proc.stdout
+
+
+@pytest.mark.parametrize(
+    "field, value", [("effective_from", 2018), ("effective_to", ["2018-01-01"])]
+)
+def test_cli_replay_handles_malformed_response_dates(tmp_path, field, value):
+    case = _amendment_case()
+    cases = tmp_path / "cases.jsonl"
+    cases.write_text(json.dumps(case) + "\n", encoding="utf-8")
+    responses = tmp_path / "responses.jsonl"
+    response = {"expected": dict(case["expected"], **{field: value})}
+    responses.write_text(
+        json.dumps({"case_id": case["case_id"], "response": response}) + "\n",
+        encoding="utf-8",
+    )
+
+    proc = _run_cli(
+        [
+            "replay",
+            "--cases",
+            str(cases),
+            "--responses",
+            str(responses),
+            "--max-rounds",
+            "2",
+        ]
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert "Traceback" not in proc.stderr
+    (result,) = json.loads(proc.stdout)
+    assert result["approved"] is False
+    assert result["status"] == "needs_expert_approval"
+    assert result["needs_expert_approval"] is True
+    assert result["rounds"] == 2
+    feedback = [
+        event["payload"]
+        for event in result["events"]
+        if event["event"] == "validator_feedback"
+    ]
+    assert len(feedback) == 2
+    assert all(not item["ok"] for item in feedback)
+    assert all(f"expected: поле {field}" in item["reason"] for item in feedback)
 
 
 @pytest.fixture
