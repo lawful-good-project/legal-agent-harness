@@ -210,6 +210,12 @@ def validate_response(response: Any) -> Dict[str, Any]:
         raise ResponseValidationError(
             f"ответ.expected: обязательные поля отсутствуют/пусты: {missing}"
         )
+    for field in ("effective_from", "effective_to"):
+        if field in expected and not _is_optional_date(expected[field]):
+            raise ResponseValidationError(
+                f"ответ.expected: поле {field} имеет неверный формат: "
+                "ожидается ГГГГ, ГГГГ-ММ, ГГГГ-ММ-ДД или null"
+            )
     return response
 
 
