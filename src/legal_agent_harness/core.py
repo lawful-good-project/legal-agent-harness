@@ -80,6 +80,16 @@ _SECRET_KEY_RE = re.compile(
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 # Длинные токен-подобные строки (>=24 символов, смешанный алфавит).
 _TOKEN_RE = re.compile(r"\b[A-Za-z0-9_\-\.]{24,}\b")
+# Абсолютные локальные пути (домашние и временные каталоги, диски Windows, ~/):
+# попадают в отчёт из traceback упавшего агента и раскрывают имя пользователя.
+# Относительные идентификаторы норм вида «гк-рф/ст.1252» и URL не затрагиваются.
+_LOCAL_PATH_RE = re.compile(
+    r"(?<![\w./:\\])"
+    r"(?:/(?:Users|home|root|tmp|private|var|mnt|Volumes)(?=[/\s\"']|$)"
+    r"|~(?=/)|[A-Za-z]:\\)"
+    # Знак препинания в конце («run.log,», «run.log)») — часть текста, не пути.
+    r"(?:[^\s\"'<>|]*[^\s\"'<>|.,;:!?)\]}])?"
+)
 
 REDACTION_PLACEHOLDER = "[REDACTED]"
 
@@ -254,7 +264,7 @@ def validate_temporal_consistency(
 
 
 def redact(value: Any) -> Any:
-    """Рекурсивно вырезает токены/секреты/email из структур событий."""
+    """Рекурсивно вырезает токены/секреты/email/локальные пути из событий."""
     if isinstance(value, dict):
         out: Dict[str, Any] = {}
         for key, item in value.items():
@@ -266,6 +276,7 @@ def redact(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [redact(item) for item in value]
     if isinstance(value, str):
+        value = _LOCAL_PATH_RE.sub(REDACTION_PLACEHOLDER, value)
         value = _EMAIL_RE.sub(REDACTION_PLACEHOLDER, value)
         value = _TOKEN_RE.sub(REDACTION_PLACEHOLDER, value)
         return value
