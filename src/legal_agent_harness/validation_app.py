@@ -4,6 +4,8 @@ import datetime as dt, hashlib, html, json, os, re, secrets, urllib.request, url
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+from .core import redact
+
 PREDICATES = {"изменена", "дополнена", "введена", "изложена_в_новой_редакции", "признана_утратившей_силу", "исключена", "уточнена"}
 MAX_UPLOAD = 20 * 1024 * 1024
 FORM_DEFAULTS = {"authority": "не указан", "jurisdiction": "RU", "score": "", "comments": ""}
@@ -64,7 +66,12 @@ def build_case(graph: Dict[str, Any]) -> Dict[str, Any]:
 
 def review_record(graph: Dict[str, Any], score: int, comments: str, session_id: str) -> Dict[str, Any]:
     if not isinstance(score, int) or not 0 <= score <= 10: raise ValueError("Оценка должна быть целым числом от 0 до 10")
-    public = {"session_id": session_id, "created_at": dt.date.today().isoformat(), "score": score, "comments": comments[:2000], "document": {k: graph["document"][k] for k in ("filename", "sha256", "authority", "jurisdiction", "effective_date")}, "records": graph["records"], "edges": graph["edges"], "expert_approved": True}
+    # Запись уходит в журнал и в публичный датасет: свободный текст (комментарий эксперта и
+    # фрагменты документа) чистится тем же redact(), что и отчёт прогона. Сначала redact,
+    # потом обрезка: обрезанный email («ivanov@exa») регулярка уже не узнала бы.
+    records = [dict(r, change_description=redact(r["change_description"])) for r in graph["records"]]
+    edges = [dict(e, evidence=redact(e["evidence"])) for e in graph["edges"]]
+    public = {"session_id": session_id, "created_at": dt.date.today().isoformat(), "score": score, "comments": redact(comments)[:2000], "document": {k: graph["document"][k] for k in ("filename", "sha256", "authority", "jurisdiction", "effective_date")}, "records": records, "edges": edges, "expert_approved": True}
     return public
 
 def append_review(path: str | Path, review: Dict[str, Any]) -> None:
