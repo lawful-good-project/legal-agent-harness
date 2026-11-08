@@ -78,6 +78,15 @@ _SECRET_KEY_RE = re.compile(
     re.IGNORECASE,
 )
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+# Кандидат в номер телефона: цифры с пробелами, дефисами, точками и скобками,
+# необязательный «+» в начале. Решение принимает _redact_phone.
+_PHONE_CANDIDATE_RE = re.compile(
+    r"(?<![\w+\-/])(?:\+[ \t ]?)?\(?\d[\d()\-. \t ]*\d(?!\w)"
+)
+# Дата внутри кандидата: «01.07.2017 147-ФЗ» — это реквизиты акта, а не телефон.
+_DATE_IN_TEXT_RE = re.compile(
+    r"(?<!\d)(?:\d{1,2}[.\-]\d{1,2}[.\-]\d{4}|\d{4}[.\-]\d{1,2}[.\-]\d{1,2})(?!\d)"
+)
 # Длинные токен-подобные строки (>=24 символов, смешанный алфавит).
 _TOKEN_RE = re.compile(r"\b[A-Za-z0-9_\-\.]{24,}\b")
 
@@ -103,6 +112,37 @@ def _is_str(value: Any) -> bool:
 def _is_optional_date(value: Any) -> bool:
     """None или дата вида ГГГГ, ГГГГ-ММ, ГГГГ-ММ-ДД."""
     return value is None or (isinstance(value, str) and bool(_DATE_RE.fullmatch(value)))
+
+
+def _redact_phone(match: "re.Match[str]") -> str:
+    """Заменяет кандидата, если это номер телефона любой страны.
+
+    С «+» — международный формат (E.164): от 8 до 15 цифр. Без «+» —
+    национальный формат: 10–11 цифр в 3–5 группах
+    («8 (900) 000-00-00», «(202) 555-0123», «020 7946 0000»). Если группы
+    разделены только пробелами, нужен национальный префикс «8 xxx» или «0…»:
+    иначе это перечень статей («125 126 1270»). Сплошные числа (ИНН, ОГРН),
+    даты и суммы с разрядами («1 000 000 000») не трогаются.
+    """
+    text = match.group(0)
+    if _DATE_IN_TEXT_RE.search(text):
+        return text
+    groups = re.findall(r"\d+", text)
+    digits = sum(len(g) for g in groups)
+    if text.startswith("+"):
+        is_phone = 8 <= digits <= 15
+    else:
+        only_spaces = not re.search(r"[()\-.]", text)
+        has_prefix = (groups[0] == "8" and len(groups[1]) == 3) or (
+            len(groups[0]) >= 2 and groups[0].startswith("0")
+        )
+        is_phone = (
+            10 <= digits <= 11
+            and 3 <= len(groups) <= 5
+            and not all(len(g) == 3 for g in groups[1:])
+            and (has_prefix or not only_spaces)
+        )
+    return REDACTION_PLACEHOLDER if is_phone else text
 
 
 def validate_case(case: Any) -> Dict[str, Any]:
@@ -268,6 +308,7 @@ def redact(value: Any) -> Any:
     if isinstance(value, str):
         value = _EMAIL_RE.sub(REDACTION_PLACEHOLDER, value)
         value = _TOKEN_RE.sub(REDACTION_PLACEHOLDER, value)
+        value = _PHONE_CANDIDATE_RE.sub(_redact_phone, value)
         return value
     return value
 
