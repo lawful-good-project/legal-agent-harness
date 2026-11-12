@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import copy
+import datetime
 import json
 import re
 from dataclasses import dataclass, field
@@ -101,8 +102,21 @@ def _is_str(value: Any) -> bool:
 
 
 def _is_optional_date(value: Any) -> bool:
-    """None или дата вида ГГГГ, ГГГГ-ММ, ГГГГ-ММ-ДД."""
-    return value is None or (isinstance(value, str) and bool(_DATE_RE.fullmatch(value)))
+    """None или существующая дата вида ГГГГ, ГГГГ-ММ, ГГГГ-ММ-ДД.
+
+    Шаблон пропускает 2017-13-45 и 2017-02-30, поэтому дата дополнительно
+    сверяется с календарём; отсутствующие месяц и день считаются первыми.
+    """
+    if value is None:
+        return True
+    if not isinstance(value, str) or not _DATE_RE.fullmatch(value):
+        return False
+    year, month, day = (value.split("-") + ["01", "01"])[:3]
+    try:
+        datetime.date(int(year), int(month), int(day))
+    except ValueError:
+        return False
+    return True
 
 
 def validate_case(case: Any) -> Dict[str, Any]:
@@ -132,7 +146,8 @@ def validate_case(case: Any) -> Dict[str, Any]:
 
     if "effective_date" in source and not _is_optional_date(source["effective_date"]):
         raise CaseValidationError(
-            f"[{case_id}] source.effective_date имеет неверный формат"
+            f"[{case_id}] source.effective_date имеет неверный формат "
+            "или такой даты не существует"
         )
 
     expected = case.get("expected")
@@ -161,7 +176,10 @@ def validate_case(case: Any) -> Dict[str, Any]:
         )
     for f in ("effective_from", "effective_to"):
         if f in expected and not _is_optional_date(expected[f]):
-            raise CaseValidationError(f"[{case_id}] expected.{f} имеет неверный формат")
+            raise CaseValidationError(
+                f"[{case_id}] expected.{f} имеет неверный формат "
+                "или такой даты не существует"
+            )
     description = expected.get("change_description")
     if description is not None and (
         not isinstance(description, str)
@@ -229,6 +247,18 @@ def matches_expectation(case: Dict[str, Any], response: Dict[str, Any]) -> bool:
     return True
 
 
+def _is_earlier(date: str, other: str) -> bool:
+    """date заведомо раньше other с учётом точности дат.
+
+    Если одна из дат указана только до месяца или года, сравниваются только
+    месяц или год: «2017-10» не раньше «2017-10-01» (1 октября входит
+    в октябрь), а «2017-09» раньше. Посимвольное сравнение строк считало
+    более короткую «2017-10» раньше «2017-10-01».
+    """
+    precision = min(len(date), len(other))
+    return date[:precision] < other[:precision]
+
+
 def validate_temporal_consistency(
     case: Dict[str, Any], response: Dict[str, Any]
 ) -> List[str]:
@@ -236,17 +266,19 @@ def validate_temporal_consistency(
 
     Это проверка здравого смысла, а не юридическое заключение: отсутствие даты
     не считается ошибкой, но противоречивые даты не могут быть одобрены.
+    Неполная дата (ГГГГ или ГГГГ-ММ) — тоже частично отсутствующая: ошибкой
+    считается только противоречие, которое есть при любом дне внутри периода.
     """
     source_date = case.get("source", {}).get("effective_date")
     expected = response.get("expected", {})
     effective_from = expected.get("effective_from")
     effective_to = expected.get("effective_to")
     errors: List[str] = []
-    if source_date and effective_from and effective_from < source_date:
+    if source_date and effective_from and _is_earlier(effective_from, source_date):
         errors.append(
             f"effective_from {effective_from} раньше даты источника {source_date}"
         )
-    if effective_from and effective_to and effective_to < effective_from:
+    if effective_from and effective_to and _is_earlier(effective_to, effective_from):
         errors.append(
             f"effective_to {effective_to} раньше effective_from {effective_from}"
         )
