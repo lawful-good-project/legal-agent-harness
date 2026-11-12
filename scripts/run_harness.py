@@ -70,6 +70,19 @@ def cmd_validate_cases(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _select_cases(cases, case_ids):
+    """Выбирает кейсы в порядке файла; опечатка в ID останавливает запуск."""
+    if case_ids is None:
+        return cases
+    selected = set(case_ids)
+    unknown = sorted(selected - {case["case_id"] for case in cases})
+    if unknown:
+        raise HarnessError(
+            f"неизвестные case_id: {unknown}; проверьте --case-id и файл кейсов"
+        )
+    return [case for case in cases if case["case_id"] in selected]
+
+
 def _run_all(cases, adapter, args) -> int:
     results = []
     for case in cases:
@@ -98,7 +111,7 @@ def _run_all(cases, adapter, args) -> int:
 def cmd_replay(args: argparse.Namespace) -> int:
     """Прогоняет кейсы через заготовленные JSON-ответы."""
     try:
-        cases = load_cases(args.cases)
+        cases = _select_cases(load_cases(args.cases), args.case_ids)
         responses = load_responses(args.responses)
         adapter = get_adapter("replay", responses=responses)
     except (CaseValidationError, HarnessError) as exc:
@@ -110,7 +123,7 @@ def cmd_replay(args: argparse.Namespace) -> int:
 def cmd_run(args: argparse.Namespace) -> int:
     """Прогоняет кейсы через локальный процесс (без сети)."""
     try:
-        cases = load_cases(args.cases)
+        cases = _select_cases(load_cases(args.cases), args.case_ids)
         adapter = get_adapter(
             "local-process",
             command=args.command,
@@ -216,6 +229,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_replay.add_argument("--out", help="файл для сохранения JSON-результатов")
     p_replay.set_defaults(func=cmd_replay)
+
+    for run_parser in (p_run, p_replay):
+        run_parser.add_argument(
+            "--case-id",
+            dest="case_ids",
+            action="append",
+            metavar="ID",
+            help="прогнать только указанный case_id (можно повторять параметр)",
+        )
 
     p_report = sub.add_parser(
         "report", help="вывести отчёт по прогону", description="Сводный отчёт."

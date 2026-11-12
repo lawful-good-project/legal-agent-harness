@@ -19,6 +19,8 @@ import threading
 import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from .core import _DuplicateKeyError, _reject_duplicate_keys
+
 DEFAULT_TIMEOUT_SECONDS = 20.0
 DEFAULT_MAX_OUTPUT_BYTES = 1_000_000
 
@@ -130,8 +132,10 @@ class LocalProcessAdapter(Adapter):
         if not text:
             raise AdapterError("пустой stdout локального процесса")
         try:
-            response = json.loads(text)
+            response = json.loads(text, object_pairs_hook=_reject_duplicate_keys)
         except json.JSONDecodeError as exc:
+            raise AdapterError(f"некорректный JSON в stdout: {exc}") from exc
+        except _DuplicateKeyError as exc:
             raise AdapterError(f"некорректный JSON в stdout: {exc}") from exc
         if not isinstance(response, dict):
             raise AdapterError("stdout должен содержать JSON-объект")
