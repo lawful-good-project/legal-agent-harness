@@ -84,6 +84,8 @@ tests/test_harness.py
 Агент получает только задание `{"case_id": "...", "source": {...}}`
 (`build_agent_task`); эталон `expected` ни одному адаптеру не передаётся.
 Адаптер `local-process` пишет задание в stdin в кодировке UTF-8.
+Повторяющиеся ключи в JSON из stdout отклоняются на любом уровне вложенности:
+ответ с двумя `predicate` не может получить автоматическое совпадение.
 
 ## Установка и запуск
 
@@ -102,6 +104,21 @@ python scripts/run_harness.py run \
   --timeout 10 --max-output-bytes 200000
 python scripts/run_harness.py report out.json
 ```
+
+Для точечной проверки поправки в `run` и `replay` укажите `--case-id`:
+
+```bash
+python scripts/run_harness.py replay \
+  --cases examples/amendments.jsonl \
+  --responses examples/amendments_responses.jsonl \
+  --case-id amend-147fz-2017-001
+```
+
+Параметр можно повторить для нескольких ID. Кейсы идут в порядке исходного
+файла; повтор одного ID не создаёт повторный прогон. Неизвестный ID останавливает
+команду до запуска агента. Без параметра выполняется весь набор. Файл кейсов
+валидируется целиком, а ответы replay нужны только для выбранных кейсов.
+Выбор кейсов не снимает обязательную экспертную проверку.
 
 ### Коды возврата CLI
 
