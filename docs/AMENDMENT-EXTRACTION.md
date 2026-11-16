@@ -23,6 +23,15 @@
 `изменена`, `дополнена`, `введена`, `изложена_в_новой_редакции`,
 `признана_утратившей_силу`, `исключена`, `уточнена`.
 
+## Контракт ответа агента
+
+Формат ответа агента описан в
+[AGENT_RESPONSE_CONTRACT.md](AGENT_RESPONSE_CONTRACT.md). Там же два примера:
+принятый (`examples/agent_contract.jsonl` и
+`examples/agent_contract_responses.jsonl`) и тот, который принять нельзя,
+потому что в источнике нет `coordinate`
+(`examples/agent_contract_rejected.jsonl`).
+
 ## Минимальный прогон
 
 ```bash
