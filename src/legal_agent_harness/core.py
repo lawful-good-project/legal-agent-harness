@@ -219,10 +219,14 @@ def matches_expectation(case: Dict[str, Any], response: Dict[str, Any]) -> bool:
     got = response.get("expected", {})
     for key, value in want.items():
         if key == "confidence":
+            if isinstance(got.get(key), bool) or not isinstance(
+                got.get(key), (int, float)
+            ):
+                return False
             try:
                 if not abs(float(value) - float(got.get(key))) <= 1e-9:
                     return False
-            except (TypeError, ValueError):
+            except OverflowError:
                 return False
         elif got.get(key) != value:
             return False
