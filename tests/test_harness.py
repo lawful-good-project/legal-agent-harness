@@ -603,6 +603,29 @@ def test_amendment_nan_confidence_prevents_approval():
         assert result.approved is False, confidence
 
 
+@pytest.mark.parametrize("confidence", ["0.9", " 0.9 ", True, [0.9]])
+def test_non_numeric_confidence_never_matches(confidence):
+    case = _amendment_case()
+    if confidence is True:
+        case["expected"]["confidence"] = 1
+    response = {"expected": dict(case["expected"], confidence=confidence)}
+    adapter = ReplayAdapter({case["case_id"]: {"response": response}})
+    result = run_case(case, adapter)
+    assert result.approved is False
+    assert result.status == "needs_expert_approval"
+    assert result.needs_expert_approval is True
+
+
+def test_huge_integer_confidence_does_not_crash_run():
+    case = _amendment_case()
+    # Так json.loads разбирает число из 401 цифры: int, а не float.
+    response = {"expected": dict(case["expected"], confidence=10**400)}
+    adapter = ReplayAdapter({case["case_id"]: {"response": response}})
+    result = run_case(case, adapter)
+    assert result.approved is False
+    assert result.status == "needs_expert_approval"
+
+
 def test_confidence_comparison_preserves_tolerance():
     case = _amendment_case()
     for confidence, approved in [(0.9 + 5e-10, True), (0.9 + 2e-9, False)]:
