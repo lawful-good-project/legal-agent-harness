@@ -4,6 +4,8 @@ import datetime as dt, hashlib, html, json, os, re, secrets, urllib.request, url
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+from .core import CaseValidationError, EXPECTED_ALLOWED_FIELDS, validate_case
+
 PREDICATES = {"изменена", "дополнена", "введена", "изложена_в_новой_редакции", "признана_утратившей_силу", "исключена", "уточнена"}
 MAX_UPLOAD = 20 * 1024 * 1024
 FORM_DEFAULTS = {"authority": "не указан", "jurisdiction": "RU", "score": "", "comments": ""}
@@ -61,6 +63,58 @@ def extract_graph(filename: str, data: bytes, authority: str = "не указа�
 def build_case(graph: Dict[str, Any]) -> Dict[str, Any]:
     r = graph["records"][0]; d = graph["document"]
     return {"case_id": "upload-" + uuid.uuid4().hex[:12], "source": {"authority": d["authority"], "jurisdiction": d["jurisdiction"], "doc_type": "amending_act", "identifier": d["filename"], "coordinate": r["coordinate"], "effective_date": d["effective_date"]}, "expected": {k: r[k] for k in ("norm_id", "predicate", "subject", "object", "effective_from", "effective_to", "change_description", "confidence")}}
+
+def build_cases(graph: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Преобразует все записи графа в черновые кейсы в исходном порядке.
+
+    ID состоит из SHA-256 документа и номера записи. Повторный экспорт того же
+    графа сохраняет ID, включая несколько поправок к одной норме. До возврата
+    проверяется каждый кейс; исходный граф не изменяется.
+    """
+    if not isinstance(graph, dict):
+        raise CaseValidationError("граф должен быть JSON-объектом")
+    document = graph.get("document")
+    if not isinstance(document, dict):
+        raise CaseValidationError("document должен быть JSON-объектом")
+    records = graph.get("records")
+    if not isinstance(records, list):
+        raise CaseValidationError("records должен быть массивом записей поправок")
+    digest = document.get("sha256")
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", digest):
+        raise CaseValidationError(
+            "document.sha256 должен содержать 64 шестнадцатеричных символа"
+        )
+
+    # Группы хеша короче токена: общий Redactor сохраняет идентификатор кейса.
+    document_id = "/".join(digest[i : i + 16].lower() for i in range(0, 64, 16))
+    cases = []
+    for index, record in enumerate(records, start=1):
+        if not isinstance(record, dict):
+            raise CaseValidationError(f"records[{index - 1}] должен быть объектом")
+        source = {
+            "authority": document.get("authority"),
+            "jurisdiction": document.get("jurisdiction"),
+            "doc_type": "amending_act",
+            "identifier": document.get("filename"),
+            "coordinate": record.get("coordinate"),
+        }
+        if "effective_date" in document:
+            source["effective_date"] = document["effective_date"]
+        case = {
+            "case_id": f"upload/{document_id}/{index}",
+            "source": source,
+            "expected": {
+                key: record[key]
+                for key in sorted(EXPECTED_ALLOWED_FIELDS)
+                if key in record
+            },
+        }
+        try:
+            validate_case(case)
+        except CaseValidationError as exc:
+            raise CaseValidationError(f"records[{index - 1}]: {exc}") from exc
+        cases.append(case)
+    return cases
 
 def review_record(graph: Dict[str, Any], score: int, comments: str, session_id: str) -> Dict[str, Any]:
     if not isinstance(score, int) or not 0 <= score <= 10: raise ValueError("Оценка должна быть целым числом от 0 до 10")

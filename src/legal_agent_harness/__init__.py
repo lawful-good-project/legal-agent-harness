@@ -30,6 +30,7 @@ from .adapters import (
     ReplayAdapter,
     get_adapter,
 )
+from .validation_app import build_cases
 
 __all__ = [
     "AGENT_TASK_FIELDS",
@@ -40,6 +41,7 @@ __all__ = [
     "RunResult",
     "ResponseValidationError",
     "build_agent_task",
+    "build_cases",
     "load_cases",
     "load_responses",
     "redact",
