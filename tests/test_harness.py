@@ -19,6 +19,8 @@ from legal_agent_harness import (  # noqa: E402
     CaseValidationError,
     Redactor,
     build_agent_task,
+    load_cases,
+    load_responses,
     redact,
     run_case,
     validate_case,
@@ -32,6 +34,14 @@ from legal_agent_harness.adapters import (  # noqa: E402
 )
 
 EXAMPLES = os.path.join(ROOT, "examples")
+FIELD_COMPARISON_CASES = os.path.join(EXAMPLES, "field_comparison_cases.jsonl")
+FIELD_COMPARISON_RESPONSES = os.path.join(EXAMPLES, "field_comparison_responses.jsonl")
+FIELD_COMPARISON_MISMATCHES = {
+    "field-comparison-article": "norm_id",
+    "field-comparison-predicate": "predicate",
+    "field-comparison-object": "object",
+    "field-comparison-date": "effective_from",
+}
 
 
 def _case():
@@ -490,9 +500,6 @@ def test_local_process_failure_is_reported_not_raised():
 
 
 def test_examples_load_and_pass():
-    sys.path.insert(0, os.path.join(ROOT, "src"))
-    from legal_agent_harness import load_cases, load_responses
-
     cases = load_cases(os.path.join(EXAMPLES, "cases.jsonl"))
     responses = load_responses(os.path.join(EXAMPLES, "responses.jsonl"))
     assert len(cases) == 3
@@ -501,6 +508,52 @@ def test_examples_load_and_pass():
         result = run_case(case, adapter)
         assert result.approved is True
         assert result.needs_expert_approval is True
+
+
+@pytest.mark.parametrize("case_id, field", FIELD_COMPARISON_MISMATCHES.items())
+def test_field_comparison_reports_single_mismatched_field(case_id, field):
+    case = {item["case_id"]: item for item in load_cases(FIELD_COMPARISON_CASES)}[case_id]
+    responses = load_responses(FIELD_COMPARISON_RESPONSES)
+    adapter = ReplayAdapter(responses)
+
+    result = run_case(case, adapter, max_rounds=1)
+
+    assert result.approved is False
+    assert result.needs_expert_approval is True
+    feedback = next(
+        event["payload"]
+        for event in result.events
+        if event["event"] == "validator_feedback"
+    )
+    assert feedback["ok"] is False
+    assert feedback["mismatched_fields"] == [field]
+    assert feedback["reason"] == f"Расхождения в полях {field}"
+    assert feedback["mismatched_values"] == {
+        field: {
+            "expected": case["expected"][field],
+            "actual": responses[case_id]["response"]["expected"][field],
+        }
+    }
+
+
+def test_field_comparison_mismatched_values_are_redacted_and_show_missing_fields():
+    case = _amendment_case()
+    case["expected"]["object"] = "expert@example.com"
+    response = {"expected": dict(case["expected"], object="agent@example.com")}
+    del response["expected"]["change_description"]
+    adapter = ReplayAdapter({case["case_id"]: {"response": response}})
+
+    result = run_case(case, adapter, max_rounds=1)
+
+    feedback = next(
+        event["payload"]
+        for event in result.events
+        if event["event"] == "validator_feedback"
+    )
+    assert feedback["mismatched_values"] == {
+        "object": {"expected": "[REDACTED]", "actual": "[REDACTED]"},
+        "change_description": {"expected": case["expected"]["change_description"]},
+    }
 
 
 def _run_cli(args):
@@ -584,6 +637,37 @@ def test_cli_report_values_and_format(report_input):
         "  OK matched status=approved rounds=1\n"
         "  !! unmatched status=needs_expert_approval rounds=3\n"
     )
+
+
+def test_cli_report_shows_field_comparison_mismatched_fields_and_values(tmp_path):
+    report_path = tmp_path / "run.json"
+    replay = _run_cli(
+        [
+            "replay",
+            "--cases",
+            FIELD_COMPARISON_CASES,
+            "--responses",
+            FIELD_COMPARISON_RESPONSES,
+            "--max-rounds",
+            "1",
+            "--out",
+            str(report_path),
+        ]
+    )
+    assert replay.returncode == 0, replay.stderr
+
+    report = _run_cli(["report", str(report_path)])
+    assert report.returncode == 0, report.stderr
+    cases = {case["case_id"]: case["expected"] for case in load_cases(FIELD_COMPARISON_CASES)}
+    responses = load_responses(FIELD_COMPARISON_RESPONSES)
+    for case_id, field in FIELD_COMPARISON_MISMATCHES.items():
+        expected = cases[case_id][field]
+        actual = responses[case_id]["response"]["expected"][field]
+        assert (
+            f"  !! {case_id} status=needs_expert_approval rounds=1\n"
+            f"     Расхождения в полях {field}\n"
+            f'       {field} — ожидалось "{expected}", получено "{actual}"\n'
+        ) in report.stdout
 
 
 def test_cli_no_command_returns_error():

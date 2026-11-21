@@ -164,7 +164,42 @@ def cmd_report(args: argparse.Namespace) -> int:
             f"  {mark}{r.get('case_id')} status={r.get('status')} "
             f"rounds={r.get('rounds')}"
         )
+        if not r.get("approved"):
+            _print_comparison_feedback(r.get("events"))
     return EXIT_OK
+
+
+def _print_comparison_feedback(events: object) -> None:
+    """Печатает результаты сравнения полей за последний раунд."""
+    if not isinstance(events, list):
+        return
+    payload = next(
+        (
+            event.get("payload")
+            for event in reversed(events)
+            if isinstance(event, dict) and event.get("event") == "validator_feedback"
+        ),
+        None,
+    )
+    if not isinstance(payload, dict) or "mismatched_fields" not in payload:
+        return
+    reason = payload.get("reason")
+    if isinstance(reason, str) and reason:
+        print(f"     {reason}")
+
+    mismatched_values = payload.get("mismatched_values")
+    if not isinstance(mismatched_values, dict):
+        return
+    for field, values in mismatched_values.items():
+        if not isinstance(values, dict) or "expected" not in values:
+            continue
+        expected = json.dumps(values["expected"], ensure_ascii=False)
+        actual = (
+            json.dumps(values["actual"], ensure_ascii=False)
+            if "actual" in values
+            else "отсутствует"
+        )
+        print(f"       {field} — ожидалось {expected}, получено {actual}")
 
 
 def build_parser() -> argparse.ArgumentParser:

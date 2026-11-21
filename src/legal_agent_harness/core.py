@@ -213,20 +213,28 @@ def validate_response(response: Any) -> Dict[str, Any]:
     return response
 
 
-def matches_expectation(case: Dict[str, Any], response: Dict[str, Any]) -> bool:
-    """Точное сравнение полей expected кейса и ответа агента."""
+def _mismatched_fields(
+    case: Dict[str, Any], response: Dict[str, Any]
+) -> List[str]:
+    """Возвращает имена полей expected, значения которых различаются."""
     want = case.get("expected", {})
     got = response.get("expected", {})
+    fields: List[str] = []
     for key, value in want.items():
         if key == "confidence":
             try:
                 if not abs(float(value) - float(got.get(key))) <= 1e-9:
-                    return False
-            except (TypeError, ValueError):
-                return False
+                    fields.append(key)
+            except (TypeError, ValueError, OverflowError):
+                fields.append(key)
         elif got.get(key) != value:
-            return False
-    return True
+            fields.append(key)
+    return fields
+
+
+def matches_expectation(case: Dict[str, Any], response: Dict[str, Any]) -> bool:
+    """Точное сравнение полей expected кейса и ответа агента."""
+    return not _mismatched_fields(case, response)
 
 
 def validate_temporal_consistency(
@@ -397,20 +405,27 @@ def run_case(
             continue
 
         last_response = response
-        matched = matches_expectation(case, response)
-        temporal_errors = validate_temporal_consistency(case, response)
-        if temporal_errors:
-            matched = False
+        mismatched_fields = _mismatched_fields(case, response)
+        actual = response["expected"]
+        mismatched_values = {}
+        for field in mismatched_fields:
+            values = {"expected": case["expected"][field]}
+            if field in actual:
+                values["actual"] = actual[field]
+            mismatched_values[field] = values
+
+        reasons = validate_temporal_consistency(case, response)
+        if mismatched_fields:
+            reasons.append(f"Расхождения в полях {', '.join(mismatched_fields)}")
+        matched = not reasons
         emit(
             "validator_feedback",
             round_no,
             {
                 "ok": matched,
-                "reason": (
-                    "совпадение"
-                    if matched
-                    else ("; ".join(temporal_errors) if temporal_errors else "расхождение с ожиданием")
-                ),
+                "reason": "совпадение" if matched else ". ".join(reasons),
+                "mismatched_fields": mismatched_fields,
+                "mismatched_values": mismatched_values,
             },
         )
         if matched:
