@@ -91,7 +91,7 @@ def test_post_saves_review_to_journal(tmp_path):
     journal = tmp_path / "validation" / "reviews.jsonl"
     review = json.loads(journal.read_text(encoding="utf-8"))
     assert review["score"] == 7
-    assert review["document"]["filename"] == "act.txt"
+    assert review["document"]["filename"] == "act-" + review["document"]["sha256"][:12] + ".txt"
     assert review["document"]["authority"] == "Госдума"
 
 

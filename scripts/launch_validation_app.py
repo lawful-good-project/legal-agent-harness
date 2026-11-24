@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Минимальный запуск контура. Основное API доступно как библиотека."""
-import argparse, json, sys
+import argparse, json, sys, uuid
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from legal_agent_harness.validation_app import extract_graph, build_case, review_record, append_review, publish_hf
@@ -13,7 +13,8 @@ def main(argv=None):
     a=p.parse_args(argv); data=Path(a.document).read_bytes(); graph=extract_graph(Path(a.document).name,data,a.authority,a.jurisdiction)
     print(json.dumps(graph,ensure_ascii=False,indent=2))
     if a.score is not None:
-        review=review_record(graph,a.score,a.comments,"review-"+Path(a.document).stem)
+        # Имя файла может содержать ПДн и уходит в путь файла на HF — как в веб-форме, берём uuid.
+        review=review_record(graph,a.score,a.comments,"review-"+uuid.uuid4().hex[:12])
         append_review(a.journal,review)
         if a.publish: print(publish_hf(review,a.hf_token))
     return 0

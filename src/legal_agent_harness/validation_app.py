@@ -11,6 +11,7 @@ from .core import (
     validate_case,
 )
 
+SUPPORTED_EXTENSIONS = (".pdf", ".txt", ".md", ".csv", ".xml", ".html", ".htm", ".docx", ".rtf")
 PREDICATES = {"изменена", "дополнена", "введена", "изложена_в_новой_редакции", "признана_утратившей_силу", "исключена", "уточнена"}
 MAX_UPLOAD = 20 * 1024 * 1024
 FORM_DEFAULTS = {"authority": "не указан", "jurisdiction": "RU", "score": "", "comments": ""}
@@ -132,9 +133,22 @@ def review_record(graph: Dict[str, Any], score: int, comments: str, session_id: 
     # Запись уходит в журнал и в публичный датасет: свободный текст (комментарий эксперта и
     # фрагменты документа) чистится тем же redact(), что и отчёт прогона. Сначала redact,
     # потом обрезка: обрезанный email («ivanov@exa») регулярка уже не узнала бы.
-    records = [dict(r, change_description=redact(r["change_description"])) for r in graph["records"]]
-    edges = [dict(e, evidence=redact(e["evidence"])) for e in graph["edges"]]
-    public = {"session_id": session_id, "created_at": dt.date.today().isoformat(), "score": score, "comments": redact(comments)[:2000], "document": {k: graph["document"][k] for k in ("filename", "sha256", "authority", "jurisdiction", "effective_date")}, "records": records, "edges": edges, "expert_approved": True}
+    # Имя файла не публикуется: в нём бывают ФИО и e-mail («Иванов_договор.docx»), а
+    # регулярками их не вычистить. Документ и так определяется sha256, поэтому вместо
+    # имени — «act-<sha256[:12]>» и расширение (формат влияет на качество извлечения).
+    source = graph["document"]
+    ext = Path(source["filename"]).suffix.lower()
+    label = f"act-{source['sha256'][:12]}" + (ext if ext in SUPPORTED_EXTENSIONS else "")
+    document = {
+        "filename": label,
+        "sha256": source["sha256"],
+        "authority": redact(source["authority"]),
+        "jurisdiction": redact(source["jurisdiction"]),
+        "effective_date": source["effective_date"],
+    }
+    records = [dict(redact(r), object=label) for r in graph["records"]]
+    edges = [redact(e) for e in graph["edges"]]
+    public = {"session_id": session_id, "created_at": dt.date.today().isoformat(), "score": score, "comments": redact(comments)[:2000], "document": document, "records": records, "edges": edges, "expert_approved": True}
     return public
 
 def append_review(path: str | Path, review: Dict[str, Any]) -> None:

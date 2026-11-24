@@ -32,7 +32,6 @@ RECORD_FIELDS = (
     "norm_id",
     "predicate",
     "subject",
-    "object",
     "effective_from",
     "effective_to",
     "confidence",
@@ -72,7 +71,8 @@ def test_email_at_length_limit_is_not_cut_in_half():
 def test_review_keeps_legal_metadata():
     graph = _graph()
     review = _review(graph)
-    assert review["document"] == graph["document"]
+    for field in ("sha256", "authority", "jurisdiction", "effective_date"):
+        assert review["document"][field] == graph["document"][field]
     assert len(review["document"]["sha256"]) == 64
     assert len(review["records"]) == len(graph["records"]) == 2
     for got, want in zip(review["records"], graph["records"]):
@@ -86,6 +86,54 @@ def test_review_keeps_legal_metadata():
     ]
     assert review["score"] == 7
     assert review["expert_approved"] is True
+
+
+def test_filename_is_not_published():
+    # Раньше имя файла уходило в document.filename и records[].object как есть,
+    # а в имени бывают e-mail и ФИО. Теперь вместо него — префикс sha256 и расширение.
+    graph = extract_graph(
+        "Иванов_И.И._ivanov@example.com_акт.txt",
+        DOCUMENT.encode("utf-8"),
+        "Госдума, expert@example.com",
+        "RU",
+    )
+    review = _review(graph)
+    blob = json.dumps(review, ensure_ascii=False)
+    for leak in LEAKS + ("Иванов",):
+        assert leak not in blob
+    label = "act-" + graph["document"]["sha256"][:12] + ".txt"
+    assert review["document"]["filename"] == label
+    assert all(r["object"] == label for r in review["records"])
+    assert review["document"]["authority"] == "Госдума, [REDACTED]"
+    assert graph["document"]["filename"] == "Иванов_И.И._ivanov@example.com_акт.txt"
+
+
+def test_unknown_extension_is_not_published():
+    # «ivanov@mail.ru» — расширение «.ru»: в метку попадают только известные форматы.
+    graph = _graph()
+    graph["document"]["filename"] = "ivanov@mail.ru"
+    review = _review(graph)
+    assert review["document"]["filename"] == "act-" + graph["document"]["sha256"][:12]
+
+
+def test_cli_session_id_has_no_filename(tmp_path, capsys):
+    # CLI собирал session_id из имени файла: e-mail уходил в запись и в путь на HF.
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "launch_validation_app",
+        Path(__file__).parents[1] / "scripts" / "launch_validation_app.py",
+    )
+    cli = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cli)
+    document = tmp_path / "ivanov@example.com_акт.txt"
+    document.write_text(DOCUMENT, encoding="utf-8")
+    journal = tmp_path / "reviews.jsonl"
+    assert cli.main([str(document), "--score", "7", "--journal", str(journal)]) == 0
+    capsys.readouterr()
+    review = json.loads(journal.read_text(encoding="utf-8"))
+    assert "ivanov@example.com" not in review["session_id"]
+    assert "ivanov@example.com" not in json.dumps(review, ensure_ascii=False)
 
 
 def test_review_does_not_modify_graph():
