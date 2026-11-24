@@ -56,7 +56,13 @@ def extract_graph(filename: str, data: bytes, authority: str = "не указа�
         edges.append({"from": node_act, "to": node_norm, "relation": predicate, "evidence": line[:500], "coordinate": f"строка {i+1}"})
     if not records:
         records.append({"norm_id": "document/article/не определена", "predicate": "изменена", "subject": "не определено", "object": filename, "effective_from": date, "effective_to": None, "change_description": "Автоматическое извлечение не нашло явной формулы изменения.", "confidence": 0.1, "coordinate": "не определена"})
-    return {"schema_version": 1, "document": {"filename": filename, "sha256": digest, "authority": authority, "jurisdiction": jurisdiction, "effective_date": date}, "nodes": [{"id": f"act:{digest[:12]}", "type": "amending_act", "label": filename}] + [{"id": f"norm:{r['norm_id'].split('/')[-1]}", "type": "norm", "label": r['subject']} for r in records], "edges": edges, "records": records, "text_stats": {"lines": len(lines), "characters": len(text)}}
+    norm_nodes = {}
+    for record in records:
+        node_id = f"norm:{record['norm_id'].split('/')[-1]}"
+        norm_nodes.setdefault(
+            node_id, {"id": node_id, "type": "norm", "label": record["subject"]}
+        )
+    return {"schema_version": 1, "document": {"filename": filename, "sha256": digest, "authority": authority, "jurisdiction": jurisdiction, "effective_date": date}, "nodes": [{"id": f"act:{digest[:12]}", "type": "amending_act", "label": filename}] + list(norm_nodes.values()), "edges": edges, "records": records, "text_stats": {"lines": len(lines), "characters": len(text)}}
 
 def build_case(graph: Dict[str, Any]) -> Dict[str, Any]:
     r = graph["records"][0]; d = graph["document"]

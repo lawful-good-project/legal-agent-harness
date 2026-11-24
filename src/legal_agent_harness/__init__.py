@@ -23,6 +23,7 @@ from .core import (
     EVENTS,
     FINAL_ALWAYS_NEEDS_EXPERT_APPROVAL,
 )
+from .graph import GraphValidationError, validate_graph
 from .adapters import (
     Adapter,
     AdapterError,
@@ -35,6 +36,7 @@ __all__ = [
     "AGENT_TASK_FIELDS",
     "CaseValidationError",
     "HarnessError",
+    "GraphValidationError",
     "Redactor",
     "RunEvent",
     "RunResult",
@@ -45,6 +47,7 @@ __all__ = [
     "redact",
     "run_case",
     "validate_case",
+    "validate_graph",
     "validate_temporal_consistency",
     "validate_response",
     "EVENTS",

@@ -6,6 +6,7 @@
   run             прогнать кейсы через адаптер
   replay          прогнать кейсы через заготовленные ответы
   report          вывести отчёт по прогону
+  validate-graph  проверить уникальность узлов и ссылки графа
 
 Коды возврата:
   0 — успех; 1 — ошибка; 2 — ошибка аргументов (argparse).
@@ -40,10 +41,15 @@ from legal_agent_harness import (  # noqa: E402
     load_responses,
     run_case,
     validate_case,
+    validate_graph,
 )
 from legal_agent_harness.adapters import (  # noqa: E402
     AdapterError,
     get_adapter,
+)
+from legal_agent_harness.core import (  # noqa: E402
+    _DuplicateKeyError,
+    _reject_duplicate_keys,
 )
 
 EXIT_OK = 0
@@ -122,6 +128,29 @@ def cmd_run(args: argparse.Namespace) -> int:
         print(f"ОШИБКА: {exc}", file=sys.stderr)
         return EXIT_ERROR
     return _run_all(cases, adapter, args)
+
+
+def cmd_validate_graph(args: argparse.Namespace) -> int:
+    """Проверяет ID и ссылки JSON-графа без изменения входного файла."""
+    try:
+        with open(args.graph, encoding="utf-8-sig") as fh:
+            graph = json.load(fh, object_pairs_hook=_reject_duplicate_keys)
+        validate_graph(graph)
+    except (
+        HarnessError,
+        OSError,
+        json.JSONDecodeError,
+        _DuplicateKeyError,
+        UnicodeError,
+    ) as exc:
+        reason = Redactor().scrub(str(exc))
+        print(f"ОШИБКА проверки графа: {reason}", file=sys.stderr)
+        return EXIT_ERROR
+    print(
+        f"OK: ID узлов и ссылки проверены (узлов: {len(graph['nodes'])}, "
+        f"связей: {len(graph['edges'])}). Требуется проверка экспертом."
+    )
+    return EXIT_OK
 
 
 def cmd_report(args: argparse.Namespace) -> int:
@@ -222,6 +251,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_report.add_argument("input", help="JSON-файл с результатами прогона")
     p_report.set_defaults(func=cmd_report)
+
+    p_graph = sub.add_parser(
+        "validate-graph",
+        help="проверить уникальность узлов и ссылки графа",
+        description="Проверка ID узлов и ссылок edges.from/to (без сети).",
+    )
+    p_graph.add_argument("graph", help="путь к JSON-графу")
+    p_graph.set_defaults(func=cmd_validate_graph)
 
     return parser
 
