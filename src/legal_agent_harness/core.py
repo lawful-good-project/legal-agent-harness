@@ -250,6 +250,13 @@ def validate_case(case: Any) -> Dict[str, Any]:
             f"[{case_id}] expected.change_description должен быть строкой "
             f"не длиннее {CHANGE_DESCRIPTION_MAX_LENGTH} символов"
         )
+    # Эталон с противоречивыми датами никогда не станет approved в run_case:
+    # ответ, совпавший с ним, отклонит validate_temporal_consistency.
+    chronology = validate_temporal_consistency(case, case)
+    if chronology:
+        raise CaseValidationError(
+            f"[{case_id}] expected: противоречивая хронология: {'; '.join(chronology)}"
+        )
 
     if source.get("doc_type") == "amending_act":
         predicate = expected.get("predicate")
@@ -296,12 +303,29 @@ def validate_response(response: Any) -> Dict[str, Any]:
         raise ResponseValidationError(
             f"ответ.expected: обязательные поля отсутствуют/пусты: {missing}"
         )
+    # Как и в кейсе, набор полей точный: поле с опечаткой (effective_form)
+    # иначе молча отбрасывалось, и ответ без даты мог стать approved.
+    extra = sorted(set(expected) - EXPECTED_ALLOWED_FIELDS)
+    if extra:
+        raise ResponseValidationError(
+            f"ответ.expected: недопустимые поля: {extra}; "
+            f"допустимы только {sorted(EXPECTED_ALLOWED_FIELDS)}"
+        )
     for field in ("effective_from", "effective_to"):
         if field in expected and not _is_optional_date(expected[field]):
             raise ResponseValidationError(
                 f"ответ.expected: поле {field} имеет неверный формат: "
                 "ожидается ГГГГ, ГГГГ-ММ, ГГГГ-ММ-ДД или null"
             )
+    description = expected.get("change_description")
+    if description is not None and (
+        not isinstance(description, str)
+        or len(description) > CHANGE_DESCRIPTION_MAX_LENGTH
+    ):
+        raise ResponseValidationError(
+            "ответ.expected: change_description должен быть строкой "
+            f"не длиннее {CHANGE_DESCRIPTION_MAX_LENGTH} символов"
+        )
     return response
 
 
