@@ -79,7 +79,9 @@ README обещает, что дата результата не может бы
 строк даёт ложную ошибку.
 
 Regression: `test_inconsistent_chronology_rejected` (две мутации
-`valid.jsonl`, `xfail(strict=True)`).
+`valid.jsonl`). **Исправлено:** `validate_case` вызывает
+`validate_temporal_consistency` для самого эталона и сравнивает даты разной
+точности по общему префиксу; маркер `xfail` снят.
 
 ## Попутные расхождения «схема ↔ код» в harness (без фикстур)
 
@@ -95,7 +97,7 @@ Regression: `test_inconsistent_chronology_rejected` (две мутации
 
 ```bash
 # harness
-python -m pytest -q tests/test_p25_schema_validator.py    # 2 passed, 3 xfailed
+python -m pytest -q tests/test_p25_schema_validator.py    # 8 passed
 python scripts/run_harness.py validate-cases tests/fixtures/p25/invalid_date.jsonl  # OK — баг
 
 # курс (из корня ip-law-course)

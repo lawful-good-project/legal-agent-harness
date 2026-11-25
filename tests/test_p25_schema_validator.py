@@ -1,8 +1,8 @@
 """P25: позитивный и негативные кейсы для валидатора. Сеть не используется.
 
 Фикстуры и описание ожидаемого поведения: tests/fixtures/p25/README.md.
-Тесты с xfail(strict=True) фиксируют найденные баги: когда валидатор
-исправят, они начнут проходить и упадут как XPASS — тогда снимите маркер.
+Обе найденные ошибки (невозможная дата и противоречивая хронология кейса)
+исправлены, маркеры xfail сняты.
 """
 
 from __future__ import annotations
@@ -43,11 +43,6 @@ def test_impossible_date_rejected():
         load_cases(_fixture("invalid_date"))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="P25: хронология кейса не проверяется в validate_case, "
-    "такой кейс никогда не будет approved в run_case",
-)
 @pytest.mark.parametrize(
     "field, value",
     [
@@ -59,5 +54,20 @@ def test_inconsistent_chronology_rejected(field, value):
     (case,) = load_cases(_fixture("valid"))
     case = copy.deepcopy(case)
     case["expected"][field] = value
-    with pytest.raises(CaseValidationError):
+    with pytest.raises(CaseValidationError, match=f"хронология: {field}"):
         validate_case(case)
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [
+        ("effective_from", "2013"),  # год источника: противоречия нет
+        ("effective_from", "2013-08"),  # месяц источника: противоречия нет
+        ("effective_to", None),  # отсутствие даты — не ошибка
+    ],
+)
+def test_partial_or_missing_dates_are_not_a_chronology_error(field, value):
+    (case,) = load_cases(_fixture("valid"))
+    case = copy.deepcopy(case)
+    case["expected"][field] = value
+    assert validate_case(case) is case

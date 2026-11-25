@@ -398,6 +398,40 @@ def test_amendment_temporal_error_prevents_approval():
     assert result.status == "needs_expert_approval"
 
 
+def test_validate_response_accepts_full_amendment_answer():
+    response = {"status": "ok", "expected": dict(_amendment_case()["expected"])}
+    response["expected"]["effective_to"] = None
+    assert validate_response(response) is response
+
+
+def test_validate_response_rejects_unknown_expected_field():
+    # Раньше опечатка effective_form молча отбрасывалась: эталон без дат
+    # совпадал, и ответ с потерянной датой получал approved.
+    expected = dict(_case()["expected"], effective_form="2017-10-01")
+    with pytest.raises(ResponseValidationError, match="effective_form"):
+        validate_response({"expected": expected})
+
+
+@pytest.mark.parametrize("value", [12345, ["описание"], "x" * 2001])
+def test_validate_response_rejects_bad_change_description(value):
+    expected = dict(_case()["expected"], change_description=value)
+    with pytest.raises(ResponseValidationError, match="change_description"):
+        validate_response({"expected": expected})
+
+
+def test_unknown_response_field_is_not_approved():
+    case = _case()
+    wrong = dict(case["expected"], effective_form="2017-10-01")
+    adapter = ReplayAdapter({"case-001": {"response": {"expected": wrong}}})
+    result = run_case(case, adapter)
+    assert result.approved is False
+    assert result.status == "needs_expert_approval"
+    assert result.needs_expert_approval is True
+    feedback = result.events[2]["payload"]
+    assert feedback["ok"] is False
+    assert "недопустимые поля" in feedback["reason"]
+
+
 def test_replay_adapter_returns_supplied_json():
     case = _case()
     payload = {"expected": dict(case["expected"])}
